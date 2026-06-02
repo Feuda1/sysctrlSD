@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme, session, Menu, MenuItem, Tray } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, session, Menu, MenuItem, Tray, net } from 'electron'
 import { join, resolve } from 'path'
 import { setupUpdater, quitAndInstallUpdate } from './updater'
 import { setupAuthIpc } from './ipc/auth'
@@ -322,6 +322,41 @@ app.whenReady().then(() => {
     path: extensionPath(),
     packaged: app.isPackaged
   }))
+
+  // AI completion runs in the main process (no renderer CORS, uses system proxy
+  // — same path as the working Zammad requests).
+  ipcMain.handle('ai:complete', async (_event, params: {
+    systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek'
+  }) => {
+    const url = params.provider === 'deepseek'
+      ? 'https://api.deepseek.com/chat/completions'
+      : 'https://api.groq.com/openai/v1/chat/completions'
+    const model = params.provider === 'deepseek' ? 'deepseek-chat' : 'llama-3.3-70b-versatile'
+    const resp = await net.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: params.systemPrompt },
+          { role: 'user', content: params.userText }
+        ],
+        temperature: 0.3,
+        max_tokens: 2048
+      })
+    })
+    if (!resp.ok) {
+      const raw = await resp.text().catch(() => '')
+      let msg = ''
+      try { msg = JSON.parse(raw)?.error?.message || '' } catch {}
+      if (!msg) msg = (resp.status === 401 || resp.status === 403)
+        ? `Сервис AI отклонил запрос (${resp.status}). Ключ недействителен или сервис недоступен.`
+        : `Ошибка AI: ${resp.status}`
+      throw new Error(msg)
+    }
+    const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> }
+    return data.choices?.[0]?.message?.content?.trim() || ''
+  })
 
   ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))
   ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'system') => {

@@ -116,50 +116,13 @@ export function getAllPresets(customPresets: StylePreset[]): StylePreset[] {
   return [...BUILT_IN_PRESETS, ...customPresets]
 }
 
+// Runs through the main process (window.api.ai.complete) to avoid renderer CORS
+// and use the same network path as the working Zammad requests.
 export async function callAiApi(
   systemPrompt: string,
   userText: string,
   apiKey: string,
   provider: 'groq' | 'deepseek'
 ): Promise<string> {
-  const url =
-    provider === 'groq'
-      ? 'https://api.groq.com/openai/v1/chat/completions'
-      : 'https://api.deepseek.com/chat/completions'
-
-  const model = provider === 'groq' ? 'llama-3.3-70b-versatile' : 'deepseek-chat'
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userText }
-      ],
-      temperature: 0.3,
-      max_tokens: 2048
-    })
-  })
-
-  if (!res.ok) {
-    const raw = await res.text().catch(() => '')
-    let msg = ''
-    try { msg = (JSON.parse(raw) as { error?: { message?: string } })?.error?.message || '' } catch {}
-    if (!msg) {
-      if (res.status === 401 || res.status === 403) {
-        msg = `Сервис AI отклонил запрос (${res.status}). Ключ недействителен или сервис недоступен в вашем регионе.`
-      } else {
-        msg = `Ошибка AI: ${res.status}`
-      }
-    }
-    throw new Error(msg)
-  }
-
-  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> }
-  return data.choices[0]?.message?.content?.trim() || ''
+  return window.api.ai.complete({ systemPrompt, userText, apiKey, provider })
 }
