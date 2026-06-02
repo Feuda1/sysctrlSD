@@ -671,6 +671,28 @@ let activeTicketsCache: ActiveTicketsCache | null = null
 const ACTIVE_TICKETS_TTL = 30000
 const clientsAvatarCache = new Map<string, string | null>()
 
+// Turns an HTTP failure into a short, human message. Gateway timeouts and HTML
+// error pages (nginx 502/503/504) are summarised instead of dumped into the UI.
+function describeHttpError(status: number, text: string, fallback: string): string {
+  if (status === 502 || status === 503 || status === 504) {
+    return `Сервер не ответил вовремя (${status}). Возможно, изменения не сохранились — обновите заявку и при необходимости повторите.`
+  }
+  if (status === 401 || status === 403) {
+    return `Нет доступа (${status}). Проверьте Zammad API ключ в настройках.`
+  }
+  const trimmed = (text || '').trim()
+  let detail = ''
+  if (trimmed && !/^\s*<(?:!doctype|html|head|body)/i.test(trimmed)) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      detail = parsed?.error_human || parsed?.error || ''
+    } catch {
+      if (trimmed.length <= 200 && !trimmed.includes('<')) detail = trimmed
+    }
+  }
+  return detail ? `${fallback}: ${detail}` : `${fallback} (ошибка ${status}).`
+}
+
 function notifyFrontend(channel: string, ...args: any[]) {
   const { BrowserWindow } = require('electron')
   const wins = BrowserWindow.getAllWindows()
@@ -3322,8 +3344,8 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    logger.error('Ошибка отправки комментария:', { status: resp.status, text })
-    throw new Error(`Ошибка отправки комментария: ${resp.status}${text ? ` ${text}` : ''}`)
+    logger.error('Ошибка отправки комментария:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось отправить комментарий'))
   }
 
   clearTicketCaches(params.ticketId)
@@ -3424,8 +3446,8 @@ async function mergeTickets(sourceTicketId: number, targetTicketNumber: string):
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    logger.error('Ошибка объединения заявок:', { status: resp.status, text })
-    throw new Error(`Ошибка объединения заявок: ${resp.status}${text ? ` ${text}` : ''}`)
+    logger.error('Ошибка объединения заявок:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось объединить заявки'))
   }
 
   clearTicketCaches(sourceTicketId)
@@ -3444,8 +3466,8 @@ async function changeTicketCustomer(ticketId: number, customerId: number): Promi
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    logger.error('Ошибка смены клиента заявки:', { status: resp.status, text })
-    throw new Error(`Ошибка смены клиента: ${resp.status}${text ? ` ${text}` : ''}`)
+    logger.error('Ошибка смены клиента заявки:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось сменить клиента'))
   }
 
   clearTicketCaches(ticketId)
@@ -3466,8 +3488,8 @@ async function createUser(userPayload: any): Promise<any> {
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '')
-    logger.error('Ошибка создания пользователя Zammad:', { status: resp.status, text })
-    throw new Error(`Ошибка создания пользователя: ${resp.status}${text ? ` ${text}` : ''}`)
+    logger.error('Ошибка создания пользователя Zammad:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось создать пользователя'))
   }
 
   const user = await resp.json()
@@ -3511,8 +3533,8 @@ async function updateUser(userId: number, userPayload: any): Promise<{ ok: boole
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
-      logger.error('Ошибка обновления профиля пользователя Zammad:', { status: resp.status, text })
-      throw new Error(`Ошибка обновления профиля: ${resp.status}${text ? ` ${text}` : ''}`)
+      logger.error('Ошибка обновления профиля пользователя Zammad:', { status: resp.status, text: text.slice(0, 500) })
+      throw new Error(describeHttpError(resp.status, text, 'Не удалось обновить профиль'))
     }
 
     const user = await resp.json()
