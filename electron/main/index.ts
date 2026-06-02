@@ -1,0 +1,407 @@
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, session, Menu, MenuItem, Tray } from 'electron'
+import { join, resolve } from 'path'
+import { setupUpdater, quitAndInstallUpdate } from './updater'
+import { setupAuthIpc } from './ipc/auth'
+import { setupTicketsIpc, readNotificationSettings } from './ipc/tickets'
+import { setupFormsIpc } from './ipc/forms'
+import log from 'electron-log/main'
+
+log.initialize({ preload: false })
+
+let mainWindow: BrowserWindow | null = null
+const windows = new Set<BrowserWindow>()
+let tray: Tray | null = null
+let isQuitting = false
+
+// ── Deep linking (sysctrlsd://ticket/<clientsNumber>) ──────────────────────
+const DEEPLINK_PROTOCOL = 'sysctrlsd'
+let pendingDeepLink: string | null = null
+
+function extractTicketNumber(url?: string): string | null {
+  if (!url) return null
+  const m = url.match(/^sysctrlsd:\/\/ticket\/(\d+)/i)
+  return m ? m[1] : null
+}
+
+function handleDeepLinkFromArgv(argv: string[]): void {
+  const urlArg = argv.find(a => typeof a === 'string' && a.startsWith(`${DEEPLINK_PROTOCOL}://`))
+  const num = extractTicketNumber(urlArg)
+  if (num) queueDeepLink(num)
+}
+
+function primaryWindow(): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow
+  return windows.values().next().value ?? null
+}
+
+function queueDeepLink(num: string): void {
+  pendingDeepLink = num
+  dispatchDeepLink()
+}
+
+// Hands the clients ticket number to the renderer, which resolves it to a
+// Zammad id and opens it in a tab. Buffered in the renderer until authenticated.
+function dispatchDeepLink(): void {
+  if (!pendingDeepLink) return
+  const win = primaryWindow()
+  if (!win) return
+  const num = pendingDeepLink
+  pendingDeepLink = null
+  const send = () => win.webContents.send('deeplink:open-ticket', num)
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
+  else send()
+  if (win.isMinimized()) win.restore()
+  win.focus()
+}
+
+const gotInstanceLock = app.requestSingleInstanceLock()
+if (!gotInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    handleDeepLinkFromArgv(argv)
+    const win = primaryWindow()
+    if (win) { if (win.isMinimized()) win.restore(); win.focus() }
+  })
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    const num = extractTicketNumber(url)
+    if (num) queueDeepLink(num)
+  })
+}
+
+function extensionPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'extension')
+    : join(app.getAppPath(), 'extension')
+}
+
+function getOverlayConfig(isDark: boolean) {
+  return {
+    color: isDark ? '#0b0f1a' : '#f8fafc',
+    symbolColor: isDark ? '#94a3b8' : '#64748b',
+    height: 38
+  }
+}
+
+function attachContextMenu(win: BrowserWindow): void {
+  win.webContents.on('context-menu', (_event, params) => {
+    const menu = new Menu()
+
+    for (const suggestion of params.dictionarySuggestions) {
+      menu.append(new MenuItem({
+        label: suggestion,
+        click: () => win.webContents.replaceMisspelling(suggestion)
+      }))
+    }
+
+    if (params.misspelledWord) {
+      if (params.dictionarySuggestions.length > 0) {
+        menu.append(new MenuItem({ type: 'separator' }))
+      }
+      menu.append(new MenuItem({
+        label: 'Добавить в словарь',
+        click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
+      }))
+    }
+
+    const hasEdit = params.editFlags.canCut || params.editFlags.canCopy || params.editFlags.canPaste || params.editFlags.canSelectAll
+    if (hasEdit) {
+      if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }))
+      if (params.editFlags.canCut) menu.append(new MenuItem({ label: 'Вырезать', role: 'cut' }))
+      if (params.editFlags.canCopy) menu.append(new MenuItem({ label: 'Копировать', role: 'copy' }))
+      if (params.editFlags.canPaste) menu.append(new MenuItem({ label: 'Вставить', role: 'paste' }))
+      if (params.editFlags.canSelectAll) menu.append(new MenuItem({ label: 'Выбрать всё', role: 'selectAll' }))
+    }
+
+    if (menu.items.length > 0) menu.popup({ window: win })
+  })
+}
+
+function setupTray(): void {
+  const iconPath = join(__dirname, '../../resources/icon.ico')
+  tray = new Tray(iconPath)
+  tray.setToolTip('sysctrlSD')
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Показать приложение',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Заявки',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('navigation:go-to-tab', '/dashboard/tickets')
+      }
+    },
+    {
+      label: 'Звонки',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('navigation:go-to-tab', '/dashboard/calls')
+      }
+    },
+    {
+      label: 'Организации',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('navigation:go-to-tab', '/dashboard/organizations')
+      }
+    },
+    {
+      label: 'Формы',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('navigation:go-to-tab', '/dashboard/forms')
+      }
+    },
+    {
+      label: 'Настройки',
+      click: () => {
+        const win = primaryWindow() ?? createWindow()
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+        win.webContents.send('navigation:go-to-tab', '/dashboard/settings')
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Выйти из приложения',
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ])
+
+  tray.setContextMenu(contextMenu)
+
+  tray.on('double-click', () => {
+    const win = primaryWindow() ?? createWindow()
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
+}
+
+interface WindowBounds { x?: number; y?: number; width?: number; height?: number }
+
+function createWindow(initialPath?: string, bounds?: WindowBounds): BrowserWindow {
+  const isDark = nativeTheme.shouldUseDarkColors
+
+  const win = new BrowserWindow({
+    width: bounds?.width ?? 1500,
+    height: bounds?.height ?? 900,
+    x: bounds?.x,
+    y: bounds?.y,
+    minWidth: 900,
+    minHeight: 600,
+    show: false,
+    frame: false,
+    icon: join(__dirname, '../../resources/icon.ico'),
+    backgroundColor: isDark ? '#0b0f1a' : '#f8fafc',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: getOverlayConfig(isDark),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true
+    }
+  })
+
+  windows.add(win)
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      const settings = readNotificationSettings()
+      if (settings.closeToTrayEnabled !== false) {
+        event.preventDefault()
+        win.hide()
+      }
+    }
+  })
+  win.on('closed', () => {
+    windows.delete(win)
+    if (mainWindow === win) {
+      mainWindow = windows.values().next().value ?? null
+    }
+  })
+
+  win.on('ready-to-show', () => win.show())
+  win.on('maximize', () => win.webContents.send('window:state', { maximized: true }))
+  win.on('unmaximize', () => win.webContents.send('window:state', { maximized: false }))
+
+  win.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  attachContextMenu(win)
+
+  const query = initialPath ? { initialPath } : undefined
+  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
+    const base = process.env['ELECTRON_RENDERER_URL']
+    const url = initialPath ? `${base}?initialPath=${encodeURIComponent(initialPath)}` : base
+    win.loadURL(url)
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'), query ? { query } : undefined)
+  }
+
+  return win
+}
+
+app.whenReady().then(() => {
+  const chromeUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+  session.defaultSession.setUserAgent(chromeUserAgent)
+  session.fromPartition('persist:clients-denvic').setUserAgent(chromeUserAgent)
+  session.defaultSession.setSpellCheckerLanguages(['ru', 'en-US'])
+
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('ru.denvic.sysctrlsd')
+  }
+
+  // Register the custom protocol so sysctrlsd:// links launch/focus the app.
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient(DEEPLINK_PROTOCOL, process.execPath, [resolve(process.argv[1])])
+  } else {
+    app.setAsDefaultProtocolClient(DEEPLINK_PROTOCOL)
+  }
+
+  app.on('browser-window-created', (_, window) => {
+    if (!app.isPackaged) {
+      window.webContents.on('before-input-event', (event, input) => {
+        if (input.key === 'F12') {
+          window.webContents.toggleDevTools()
+          event.preventDefault()
+        }
+      })
+    }
+  })
+
+  const senderWindow = (event: Electron.IpcMainInvokeEvent) => BrowserWindow.fromWebContents(event.sender)
+
+  ipcMain.handle('window:minimize', (event) => senderWindow(event)?.minimize())
+  ipcMain.handle('window:maximize', (event) => {
+    const win = senderWindow(event)
+    if (win?.isMaximized()) win.unmaximize()
+    else win?.maximize()
+  })
+  ipcMain.handle('window:close', (event) => senderWindow(event)?.close())
+  ipcMain.handle('window:isMaximized', (event) => senderWindow(event)?.isMaximized() ?? false)
+
+  ipcMain.handle('windows:open', (_event, initialPath?: string, bounds?: WindowBounds) => {
+    createWindow(typeof initialPath === 'string' ? initialPath : undefined, bounds)
+  })
+
+  // Installing an update must bypass close-to-tray and actually quit.
+  ipcMain.handle('updater:install', () => {
+    isQuitting = true
+    quitAndInstallUpdate()
+  })
+
+  ipcMain.handle('app:getExtensionInfo', () => ({
+    path: extensionPath(),
+    packaged: app.isPackaged
+  }))
+
+  ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))
+  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'system') => {
+    nativeTheme.themeSource = theme
+    const isDark = nativeTheme.shouldUseDarkColors
+    for (const win of windows) win.setTitleBarOverlay(getOverlayConfig(isDark))
+    return isDark ? 'dark' : 'light'
+  })
+
+  nativeTheme.on('updated', () => {
+    if (nativeTheme.themeSource === 'system') {
+      for (const win of windows) win.setTitleBarOverlay(getOverlayConfig(nativeTheme.shouldUseDarkColors))
+    }
+  })
+
+  setupPyrusInterceptor(session.defaultSession)
+  setupPyrusInterceptor(session.fromPartition('persist:clients-denvic'))
+
+  setupAuthIpc()
+  setupTicketsIpc()
+  setupFormsIpc()
+  mainWindow = createWindow()
+  setupUpdater(mainWindow)
+  setupTray()
+
+  handleDeepLinkFromArgv(process.argv)
+  dispatchDeepLink()
+
+  app.on('activate', function () {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow()
+    }
+  })
+
+  app.on('before-quit', () => {
+    isQuitting = true
+  })
+})
+
+function setupPyrusInterceptor(ses: Electron.Session): void {
+  ses.webRequest.onBeforeSendHeaders(
+    { urls: ['*://pyrus.com/*', '*://*.pyrus.com/*'] },
+    (details, callback) => {
+      const referer = details.referrer || details.requestHeaders['Referer'] || ''
+      if (referer.includes('pyrus.com')) {
+        callback({ requestHeaders: details.requestHeaders })
+        return
+      }
+      details.requestHeaders['Referer'] = 'https://clients.denvic.ru/'
+      details.requestHeaders['Origin'] = 'https://clients.denvic.ru'
+      callback({ requestHeaders: details.requestHeaders })
+    }
+  )
+
+  ses.webRequest.onBeforeRequest(
+    { urls: ['*://pyrus.com/*', '*://*.pyrus.com/*'] },
+    (details, callback) => {
+      log.info('Pyrus Request:', details.url, details.resourceType)
+      callback({})
+    }
+  )
+
+  ses.webRequest.onHeadersReceived(
+    { urls: ['*://pyrus.com/*', '*://*.pyrus.com/*'] },
+    (details, callback) => {
+      log.info('Pyrus Response:', details.url, details.statusCode)
+      callback({})
+    }
+  )
+
+  ses.webRequest.onErrorOccurred(
+    { urls: ['*://pyrus.com/*', '*://*.pyrus.com/*'] },
+    (details) => {
+      log.error('Pyrus Error:', details.url, details.error)
+    }
+  )
+}
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})

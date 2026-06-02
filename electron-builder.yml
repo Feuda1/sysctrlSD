@@ -1,0 +1,32 @@
+appId: ru.denvic.sysctrlsd
+productName: sysctrlSD
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{tailwind.config.js,postcss.config.js}'
+asarUnpack:
+  - resources/**
+extraResources:
+  - from: extension
+    to: extension
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  executableName: sysctrlSD
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+publish:
+  provider: github
+  owner: Feuda1
+  repo: sysctrlSD
