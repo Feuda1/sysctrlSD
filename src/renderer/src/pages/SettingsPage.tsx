@@ -181,6 +181,8 @@ function SecretToggle({
 function SecretSettingsModal({ onClose }: { onClose: () => void }) {
   const allowTicketPendingWithoutReason = useUIStore(s => s.allowTicketPendingWithoutReason)
   const setAllowTicketPendingWithoutReason = useUIStore(s => s.setAllowTicketPendingWithoutReason)
+  const allowTicketStatusWithoutPublicComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
+  const setAllowTicketStatusWithoutPublicComment = useUIStore(s => s.setAllowTicketStatusWithoutPublicComment)
 
   return (
     <motion.div
@@ -207,6 +209,11 @@ function SecretSettingsModal({ onClose }: { onClose: () => void }) {
             checked={allowTicketPendingWithoutReason}
             onChange={setAllowTicketPendingWithoutReason}
             label="Закрывать без причины обращения"
+          />
+          <SecretToggle
+            checked={allowTicketStatusWithoutPublicComment}
+            onChange={setAllowTicketStatusWithoutPublicComment}
+            label="Откладывать без комментария"
           />
         </div>
       </motion.div>
