@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getUserDisplayName, getUserInitials, cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth'
 import { useUIStore } from '@/store/ui'
+import { useTabsStore } from '@/store/tabs'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useNotificationsStore } from '@/store/notifications'
 import { useMacrosStore } from '@/store/macros'
@@ -1777,6 +1778,7 @@ function UpdateSettings() {
 export default function SettingsPage() {
   const secretClickCountRef = useRef(0)
   const [isSecretOpen, setIsSecretOpen] = useState(false)
+  const navigateActive = useTabsStore(s => s.navigateActive)
   const logout = useAuthStore(s => s.logout)
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
 
@@ -1802,11 +1804,11 @@ export default function SettingsPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => logout()}
-            className="h-8 gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive text-xs"
+            onClick={() => navigateActive('/dashboard/tickets')}
+            className="h-8 gap-2 text-muted-foreground hover:text-foreground text-xs"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            Выйти из аккаунта
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Назад к заявкам
           </Button>
         </div>
 
@@ -1849,6 +1851,15 @@ export default function SettingsPage() {
                     <AvatarSettings />
                     <div className="h-px bg-border/40" />
                     <ClientsProfileSettings />
+                    <div className="h-px bg-border/40" />
+                    <Button
+                      variant="ghost"
+                      onClick={() => logout()}
+                      className="w-full justify-center gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Выйти из аккаунта
+                    </Button>
                   </div>
                 )}
 

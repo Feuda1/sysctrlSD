@@ -1226,6 +1226,7 @@ function CustomDateTimePicker({ value, onChange }: { value: string; onChange: (v
   const baseDate = value ? new Date(value) : new Date()
   const validDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate
   const [open, setOpen] = useState(false)
+  const [coords, setCoords] = useState<{ left: number; top?: number; bottom?: number }>({ left: 0 })
   const [viewDate, setViewDate] = useState(new Date(validDate.getFullYear(), validDate.getMonth(), 1))
   const selectedDay = new Date(validDate.getFullYear(), validDate.getMonth(), validDate.getDate())
   const hour = validDate.getHours()
@@ -1236,15 +1237,38 @@ function CustomDateTimePicker({ value, onChange }: { value: string; onChange: (v
     setViewDate(new Date(validDate.getFullYear(), validDate.getMonth(), 1))
   }, [value])
 
+  // Rendered in a portal with fixed positioning so it isn't clipped by the
+  // scrollable params panel; flips upward when there's no room below.
   useEffect(() => {
     if (!open) return
+    const PICKER_W = 288
+    const reposition = () => {
+      const el = rootRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const left = Math.max(8, Math.min(rect.right - PICKER_W, window.innerWidth - PICKER_W - 8))
+      const spaceBelow = window.innerHeight - rect.bottom
+      if (spaceBelow < 380 && rect.top > spaceBelow) {
+        setCoords({ left, bottom: window.innerHeight - rect.top + 6 })
+      } else {
+        setCoords({ left, top: rect.bottom + 6 })
+      }
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
     const handlePointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false)
+        const portal = document.getElementById('ticket-datetime-portal')
+        if (!portal?.contains(event.target as Node)) setOpen(false)
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+      document.removeEventListener('pointerdown', handlePointerDown)
+    }
   }, [open])
 
   const update = (patch: Partial<{ year: number; month: number; day: number; hour: number; minute: number }>) => {
@@ -1288,8 +1312,12 @@ function CustomDateTimePicker({ value, onChange }: { value: string; onChange: (v
         <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
 
-      {open && (
-        <div className="absolute right-0 z-40 mt-1 w-72 rounded-lg border border-border bg-card p-3 shadow-xl">
+      {open && createPortal(
+        <div
+          id="ticket-datetime-portal"
+          style={{ position: 'fixed', left: coords.left, top: coords.top, bottom: coords.bottom, width: 288 }}
+          className="z-[9999] rounded-lg border border-border bg-card p-3 shadow-xl"
+        >
           <div className="mb-2 flex items-center justify-between">
             <button type="button" className="rounded p-1 hover:bg-accent" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}>
               <ChevronLeft className="h-4 w-4" />
@@ -1361,7 +1389,8 @@ function CustomDateTimePicker({ value, onChange }: { value: string; onChange: (v
               Готово
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
