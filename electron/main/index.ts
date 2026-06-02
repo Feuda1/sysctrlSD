@@ -323,39 +323,76 @@ app.whenReady().then(() => {
     packaged: app.isPackaged
   }))
 
+  // OpenRouter free models, grouped into chunks of 3 (OpenRouter caps the
+  // `models` fallback array at 3). We try chunk by chunk: within a chunk
+  // OpenRouter itself falls back across the 3; across chunks we retry on
+  // rate-limit. Providers are interleaved so a single busy provider doesn't
+  // block a whole chunk — for ~10 users the free limit practically never runs
+  // out. All are general-purpose instruct models (no reasoning/coder) and
+  // reachable from RU.
+  const OPENROUTER_MODEL_CHUNKS: string[][] = [
+    ['openai/gpt-oss-120b:free', 'google/gemma-4-31b-it:free', 'z-ai/glm-4.5-air:free'],
+    ['qwen/qwen3-next-80b-a3b-instruct:free', 'moonshotai/kimi-k2.6:free', 'meta-llama/llama-3.3-70b-instruct:free'],
+    ['nvidia/nemotron-3-super-120b-a12b:free', 'google/gemma-4-26b-a4b-it:free', 'openai/gpt-oss-20b:free']
+  ]
+
   // AI completion runs in the main process (no renderer CORS, uses system proxy
   // — same path as the working Zammad requests).
   ipcMain.handle('ai:complete', async (_event, params: {
-    systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek'
+    systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter'
   }) => {
+    const messages = [
+      { role: 'system', content: params.systemPrompt },
+      { role: 'user', content: params.userText }
+    ]
+
+    const callOnce = async (url: string, body: Record<string, unknown>, extraHeaders: Record<string, string> = {}) => {
+      const resp = await net.fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}`, ...extraHeaders },
+        body: JSON.stringify({ messages, temperature: 0.3, max_tokens: 2048, ...body })
+      })
+      if (!resp.ok) {
+        const raw = await resp.text().catch(() => '')
+        let msg = ''
+        try { msg = JSON.parse(raw)?.error?.message || '' } catch {}
+        const err = new Error(msg || (resp.status === 401 || resp.status === 403
+          ? `Сервис AI отклонил запрос (${resp.status}). Ключ недействителен или сервис недоступен.`
+          : `Ошибка AI: ${resp.status}`)) as Error & { status?: number }
+        err.status = resp.status
+        throw err
+      }
+      const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> }
+      return data.choices?.[0]?.message?.content?.trim() || ''
+    }
+
+    if (params.provider === 'openrouter') {
+      const headers = { 'HTTP-Referer': 'https://github.com/Feuda1/sysctrlSD', 'X-Title': 'sysctrlSD' }
+      let lastError: Error | null = null
+      // Walk chunk by chunk: each request lets OpenRouter fall back across its 3
+      // models; on rate-limit we move to the next chunk (different providers).
+      for (const chunk of OPENROUTER_MODEL_CHUNKS) {
+        try {
+          return await callOnce('https://openrouter.ai/api/v1/chat/completions', { model: chunk[0], models: chunk }, headers)
+        } catch (e) {
+          lastError = e as Error
+          const status = (e as { status?: number }).status
+          // Only keep trying on rate-limit / transient errors; bail on auth errors.
+          if (status === 401 || status === 403) break
+          if (status && status !== 429 && status < 500) break
+        }
+      }
+      if ((lastError as { status?: number } | null)?.status === 429) {
+        throw new Error('Все бесплатные модели сейчас перегружены. Повторите через несколько секунд.')
+      }
+      throw lastError || new Error('Не удалось получить ответ AI')
+    }
+
     const url = params.provider === 'deepseek'
       ? 'https://api.deepseek.com/chat/completions'
       : 'https://api.groq.com/openai/v1/chat/completions'
     const model = params.provider === 'deepseek' ? 'deepseek-chat' : 'llama-3.3-70b-versatile'
-    const resp = await net.fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: params.systemPrompt },
-          { role: 'user', content: params.userText }
-        ],
-        temperature: 0.3,
-        max_tokens: 2048
-      })
-    })
-    if (!resp.ok) {
-      const raw = await resp.text().catch(() => '')
-      let msg = ''
-      try { msg = JSON.parse(raw)?.error?.message || '' } catch {}
-      if (!msg) msg = (resp.status === 401 || resp.status === 403)
-        ? `Сервис AI отклонил запрос (${resp.status}). Ключ недействителен или сервис недоступен.`
-        : `Ошибка AI: ${resp.status}`
-      throw new Error(msg)
-    }
-    const data = await resp.json() as { choices?: Array<{ message?: { content?: string } }> }
-    return data.choices?.[0]?.message?.content?.trim() || ''
+    return callOnce(url, { model })
   })
 
   ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))

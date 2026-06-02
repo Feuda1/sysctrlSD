@@ -29,7 +29,7 @@ declare global {
         getVersion: () => Promise<string>
       }
       ai: {
-        complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' }) => Promise<string>
+        complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter' }) => Promise<string>
       }
       deeplink: {
         onOpenTicket: (callback: (clientsNumber: string) => void) => () => void
