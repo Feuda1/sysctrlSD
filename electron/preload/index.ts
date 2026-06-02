@@ -157,7 +157,7 @@ const api = {
     getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
   },
   ai: {
-    complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' }): Promise<string> =>
+    complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter' }): Promise<string> =>
       ipcRenderer.invoke('ai:complete', params)
   },
   deeplink: {

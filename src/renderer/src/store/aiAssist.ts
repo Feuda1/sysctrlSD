@@ -9,27 +9,37 @@ export interface StylePreset {
 
 const LS_KEY = 'sysctrl-ai-assist'
 
+type AiProvider = 'groq' | 'deepseek' | 'openrouter'
+
 interface Stored {
   apiKey: string
-  provider: 'groq' | 'deepseek'
+  provider: AiProvider
   activePresetId: string
   customPresets: StylePreset[]
 }
 
-// Default key is injected at build time from .env (VITE_GROQ_KEY) so it ships
-// in the packaged app for every user, while staying out of the source / git.
-const DEFAULT_API_KEY = import.meta.env.VITE_GROQ_KEY || ''
+// Default key is injected at build time from .env (VITE_OPENROUTER_KEY) so it
+// ships in the packaged app for every user, while staying out of the source.
+// OpenRouter is reachable from RU and the main process rotates across several
+// free models, so the limit practically never runs out for a small team.
+const DEFAULT_API_KEY = import.meta.env.VITE_OPENROUTER_KEY || ''
+const DEFAULT_PROVIDER: AiProvider = 'openrouter'
 
 function load(): Stored {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Stored
-      // Fall back to the build key if the stored one is empty (older builds).
+      // Migrate users off the old Groq/DeepSeek defaults onto OpenRouter. We only
+      // keep a stored key when it's an explicit OpenRouter key (sk-or-...).
+      const isOpenRouterKey = typeof parsed.apiKey === 'string' && parsed.apiKey.startsWith('sk-or-')
+      if (parsed.provider !== 'openrouter' || !isOpenRouterKey) {
+        return { ...parsed, provider: DEFAULT_PROVIDER, apiKey: DEFAULT_API_KEY }
+      }
       return { ...parsed, apiKey: parsed.apiKey || DEFAULT_API_KEY }
     }
   } catch {}
-  return { apiKey: DEFAULT_API_KEY, provider: 'groq', activePresetId: 'tech-support', customPresets: [] }
+  return { apiKey: DEFAULT_API_KEY, provider: DEFAULT_PROVIDER, activePresetId: 'tech-support', customPresets: [] }
 }
 
 function save(data: Stored) {
@@ -55,11 +65,11 @@ export const CORRECTION_PROMPT =
 
 interface AiAssistState {
   apiKey: string
-  provider: 'groq' | 'deepseek'
+  provider: AiProvider
   activePresetId: string
   customPresets: StylePreset[]
   setApiKey: (key: string) => void
-  setProvider: (p: 'groq' | 'deepseek') => void
+  setProvider: (p: AiProvider) => void
   setActivePresetId: (id: string) => void
   addPreset: (name: string, instruction: string) => string
   updatePreset: (id: string, name: string, instruction: string) => void
@@ -122,7 +132,7 @@ export async function callAiApi(
   systemPrompt: string,
   userText: string,
   apiKey: string,
-  provider: 'groq' | 'deepseek'
+  provider: AiProvider
 ): Promise<string> {
   return window.api.ai.complete({ systemPrompt, userText, apiKey, provider })
 }
