@@ -16,12 +16,20 @@ interface Stored {
   customPresets: StylePreset[]
 }
 
+// Default key is injected at build time from .env (VITE_GROQ_KEY) so it ships
+// in the packaged app for every user, while staying out of the source / git.
+const DEFAULT_API_KEY = import.meta.env.VITE_GROQ_KEY || ''
+
 function load(): Stored {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
-    if (raw) return JSON.parse(raw) as Stored
+    if (raw) {
+      const parsed = JSON.parse(raw) as Stored
+      // Fall back to the build key if the stored one is empty (older builds).
+      return { ...parsed, apiKey: parsed.apiKey || DEFAULT_API_KEY }
+    }
   } catch {}
-  return { apiKey: '', provider: 'groq', activePresetId: 'tech-support', customPresets: [] }
+  return { apiKey: DEFAULT_API_KEY, provider: 'groq', activePresetId: 'tech-support', customPresets: [] }
 }
 
 function save(data: Stored) {
@@ -139,8 +147,17 @@ export async function callAiApi(
   })
 
   if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
-    throw new Error(err?.error?.message || `Ошибка API: ${res.status}`)
+    const raw = await res.text().catch(() => '')
+    let msg = ''
+    try { msg = (JSON.parse(raw) as { error?: { message?: string } })?.error?.message || '' } catch {}
+    if (!msg) {
+      if (res.status === 401 || res.status === 403) {
+        msg = `Сервис AI отклонил запрос (${res.status}). Ключ недействителен или сервис недоступен в вашем регионе.`
+      } else {
+        msg = `Ошибка AI: ${res.status}`
+      }
+    }
+    throw new Error(msg)
   }
 
   const data = (await res.json()) as { choices: Array<{ message: { content: string } }> }
