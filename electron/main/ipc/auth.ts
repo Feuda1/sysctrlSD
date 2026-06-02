@@ -172,10 +172,27 @@ function getProfileFields(form: ProfileForm) {
 }
 
 async function readClientProfileForm(): Promise<ProfileForm> {
-  const resp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, { session: wrapperSession() } as any)
+  let resp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, { session: wrapperSession() } as any)
   if (!resp.ok) throw new Error(`Не удалось загрузить профиль clients: ${resp.status}`)
-  const html = await resp.text()
-  if (html.includes('/Account/Login')) throw new Error('Сессия clients истекла')
+  let html = await resp.text()
+  if (html.includes('/Account/Login')) {
+    const stored = readStored()
+    if (stored.savedEmail && stored.savedPassword) {
+      try {
+        await loginWrapper(stored.savedEmail, stored.savedPassword)
+        resp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, { session: wrapperSession() } as any)
+        if (resp.ok) {
+          html = await resp.text()
+          if (!html.includes('/Account/Login')) {
+            return parseProfileForm(html)
+          }
+        }
+      } catch (err) {
+        logger.error('Auto-login during readClientProfileForm failed:', err)
+      }
+    }
+    throw new Error('Сессия clients истекла')
+  }
   return parseProfileForm(html)
 }
 
@@ -301,14 +318,9 @@ export function writeStored(data: StoredData): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// clients.denvic.ru login using Electron Session (handles cookies like browser)
-// ---------------------------------------------------------------------------
-
 export async function loginWrapper(email: string, password: string): Promise<AppUser> {
   const ses = wrapperSession()
 
-  // Clear stale cookies
   await ses.clearStorageData({ storages: ['cookies'] })
 
   const pageResp = await net.fetch(`${WRAPPER_BASE}/`, {
@@ -332,22 +344,24 @@ export async function loginWrapper(email: string, password: string): Promise<App
     body: new URLSearchParams({
       Email: email,
       password,
-      RememberMe: 'true',
+      RememberMe: 'false',
       __RequestVerificationToken: csrfToken
     }).toString()
   } as any)
 
-  // If we ended up back on the login page → wrong credentials
   if (loginResp.url.includes('/Account/Login') || loginResp.url.includes('returnUrl')) {
     throw new Error('Неверный логин или пароль')
   }
 
   logger.info('Wrapper login successful, landed on:', loginResp.url)
-
   logger.info('Wrapper login OK, fetching Zammad API key from profile...')
 
   const profileResp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, { session: ses } as any)
   const profileHtml = await profileResp.text()
+
+  if (profileResp.url.includes('/Account/Login') || profileHtml.includes('/Account/Login')) {
+    throw new Error('Сессия не была создана. Проверьте правильность системного времени.')
+  }
 
   const keyMatch =
     profileHtml.match(/ZammadApiKey[^>]*value="([^"]{10,})"/) ||
@@ -360,7 +374,6 @@ export async function loginWrapper(email: string, password: string): Promise<App
 
   if (zammadToken) {
     logger.info('ZammadApiKey extracted successfully')
-    // Persist token; it will be used for all Zammad API calls
     const stored = readStored()
     writeStored({ ...stored, zammadToken })
   } else {
@@ -368,7 +381,6 @@ export async function loginWrapper(email: string, password: string): Promise<App
     logger.debug('Profile HTML snippet:', profileHtml.substring(0, 2000))
   }
 
-  // Step 4: Get real user info from Zammad API
   const token = zammadToken ?? readStored().zammadToken
   if (token) {
     const zUser = await fetchZammadUser(token)
@@ -378,10 +390,6 @@ export async function loginWrapper(email: string, password: string): Promise<App
   const login = email.split('@')[0]
   return { email, login, firstname: login, lastname: '' }
 }
-
-// ---------------------------------------------------------------------------
-// Wrapper session validation
-// ---------------------------------------------------------------------------
 
 export async function isWrapperSessionAlive(): Promise<boolean> {
   try {
