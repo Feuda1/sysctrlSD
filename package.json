@@ -20,7 +20,7 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "release": "npm run build && electron-builder --win --publish always"
+    "release": "node scripts/release.js"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^3.0.0",

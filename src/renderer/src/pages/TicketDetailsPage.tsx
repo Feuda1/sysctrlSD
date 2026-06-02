@@ -949,6 +949,11 @@ function isReasonRequiredState(stateName?: string | null): boolean {
   return normalized.includes('закрыт') || normalized.includes('ожидании закрытия') || normalized.includes('ожидание закрытия')
 }
 
+function isPendingOrClosedState(stateName?: string | null): boolean {
+  const normalized = String(stateName || '').toLowerCase().replace(/ё/g, 'е').trim()
+  return normalized.includes('ожидан') || normalized.includes('закрыт')
+}
+
 function getPriorityOrder(priority: { id: number; name: string }): number {
   const normalized = priority.name.toLowerCase()
   if (normalized.includes('низ') || normalized.includes('low') || priority.id === 1) return 1
@@ -1641,6 +1646,7 @@ export default function TicketDetailsPage() {
   const chatStyle = useUIStore(s => s.chatStyle)
   const bubbleSide = useUIStore(s => s.bubbleSide)
   const allowTicketPendingWithoutReason = useUIStore(s => s.allowTicketPendingWithoutReason)
+  const allowTicketStatusWithoutPublicComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
   const afterCommentSubmitAction = useUIStore(s => s.afterCommentSubmitAction)
   const hideScrollDownArrow = useUIStore(s => s.hideScrollDownArrow)
   const currentUser = useAuthStore(s => s.user)
@@ -2081,6 +2087,13 @@ export default function TicketDetailsPage() {
 
     if (requiresReason && !allowTicketPendingWithoutReason && iikoReasonIds.length === 0) {
       setCommentWarning('Необходимо выбрать причину обращения чтобы закрыть заявку')
+      return
+    }
+
+    const isChangingState = commentStateId !== detailsData?.ticket?.state?.id
+    const isTargetPendingOrClosed = isPendingOrClosedState(selectedStateName)
+    if (isChangingState && isTargetPendingOrClosed && !allowTicketStatusWithoutPublicComment && commentBody.trim() === '') {
+      setCommentWarning('Необходимо написать комментарий для изменения состояния заявки')
       return
     }
 
