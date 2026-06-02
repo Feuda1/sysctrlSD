@@ -156,6 +156,10 @@ const api = {
       ipcRenderer.invoke('app:getExtensionInfo'),
     getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
   },
+  ai: {
+    complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' }): Promise<string> =>
+      ipcRenderer.invoke('ai:complete', params)
+  },
   deeplink: {
     onOpenTicket: (callback: (clientsNumber: string) => void) => {
       const handler = (_: Electron.IpcRendererEvent, num: string) => callback(num)

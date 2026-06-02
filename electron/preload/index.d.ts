@@ -28,6 +28,9 @@ declare global {
         getExtensionInfo: () => Promise<{ path: string; packaged: boolean }>
         getVersion: () => Promise<string>
       }
+      ai: {
+        complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' }) => Promise<string>
+      }
       deeplink: {
         onOpenTicket: (callback: (clientsNumber: string) => void) => () => void
       }
