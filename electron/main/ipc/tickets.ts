@@ -4302,9 +4302,8 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
     let toastEnabled = true
     
     const isMyTicket = normalized.owner?.id === myUserId
-    const isUnassigned = !normalized.owner?.id || normalized.owner?.id === 1
     
-    if (settings.myTicketsEnabled && (isMyTicket || isUnassigned)) {
+    if (settings.myTicketsEnabled && isMyTicket) {
       notify = true
       sound = settings.myTicketsSound || 'synth-chime'
       volume = settings.myTicketsVolume !== undefined ? settings.myTicketsVolume : 1.0
