@@ -33,6 +33,7 @@ import { cn, readFileAsDataUrl, dataUrlPayload } from '@/lib/utils'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { getStateBadgeClass, getTicketTypeBadgeClass } from '@/types/ticket'
 import { useAuthStore } from '@/store/auth'
+import { useUIStore } from '@/store/ui'
 import { AiAssistButton } from '@/components/ai/AiAssistButton'
 
 type CallsResponse = Awaited<ReturnType<typeof window.api.calls.getAll>>
@@ -303,10 +304,10 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function tomorrowAtTen(): string {
+function tomorrowAtEleven(): string {
   const date = new Date()
   date.setDate(date.getDate() + 1)
-  date.setHours(10, 0, 0, 0)
+  date.setHours(11, 0, 0, 0)
   return toDateTimeLocalValue(date)
 }
 
@@ -329,7 +330,8 @@ function toHtmlComment(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
   if (!escaped.trim()) return ''
-  return `<div style="white-space: pre-wrap;">${escaped}</div>`
+  // Zammad strips the style attribute, so line breaks must be real <br> elements.
+  return `<div>${escaped.replace(/\r\n|\r|\n/g, '<br>')}</div>`
 }
 
 // Settings store the wrapper's group id/name, which may not match Zammad group ids.
@@ -942,6 +944,7 @@ function normalizePhoneToDigits(phone: string): string {
 
 export default function CallsPage() {
   const navigate = useNavigate()
+  const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
   const { user: currentUser } = useAuthStore()
   const [activeSection, setActiveSection] = useState<SectionKey>('history')
   const [search, setSearch] = useState('')
@@ -1001,7 +1004,7 @@ export default function CallsPage() {
       setCreateTicketUserId(currentUser?.id ? String(currentUser.id) : '')
       setCreateTicketStateId('1')
       setCreateTicketPriorityId('2')
-      setCreateTicketPendingTime(tomorrowAtTen())
+      setCreateTicketPendingTime(tomorrowAtEleven())
       setCreateTicketReasonIds([])
       setCreateTicketTimeUnit('')
       setCreateTicketCloseComment('')
@@ -1168,7 +1171,7 @@ export default function CallsPage() {
         }
         setCreateTicketModalCall(null)
         refetch()
-        navigate(`/dashboard/tickets/${res.newTicketId}`)
+        if (openCreatedTicket) navigate(`/dashboard/tickets/${res.newTicketId}`)
       } else {
         throw new Error('Не удалось получить ID новой заявки')
       }
@@ -1241,7 +1244,7 @@ export default function CallsPage() {
 
       setCreateTicketModalCall(null)
       refetch()
-      navigate(`/dashboard/tickets/${res.newTicketId}`)
+      if (openCreatedTicket) navigate(`/dashboard/tickets/${res.newTicketId}`)
     } catch (err) {
       setCreateTicketError(err instanceof Error ? err.message : 'Ошибка при закрытии заявки')
     } finally {

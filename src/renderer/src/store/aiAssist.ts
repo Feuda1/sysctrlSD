@@ -12,38 +12,44 @@ const LS_KEY = 'sysctrl-ai-assist'
 type AiProvider = 'groq' | 'deepseek' | 'openrouter'
 
 interface Stored {
+  v?: number
   apiKey: string
   provider: AiProvider
   activePresetId: string
   customPresets: StylePreset[]
 }
 
-// Default key is injected at build time from .env (VITE_OPENROUTER_KEY) so it
-// ships in the packaged app for every user, while staying out of the source.
-// OpenRouter is reachable from RU and the main process rotates across several
-// free models, so the limit practically never runs out for a small team.
-const DEFAULT_API_KEY = import.meta.env.VITE_OPENROUTER_KEY || ''
-const DEFAULT_PROVIDER: AiProvider = 'openrouter'
+// Default keys are injected at build time from .env so they ship in the packaged
+// app for every user while staying out of the source. DeepSeek is the primary
+// provider (paid key, no free-tier queues); OpenRouter's rotating free models
+// stay as the fallback when no DeepSeek key was built in.
+const DEEPSEEK_KEY = import.meta.env.VITE_DEEPSEEK_KEY || ''
+const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_KEY || ''
+const DEFAULT_PROVIDER: AiProvider = DEEPSEEK_KEY ? 'deepseek' : 'openrouter'
+const DEFAULT_API_KEY = DEEPSEEK_KEY || OPENROUTER_KEY
+
+// Bumped whenever the built-in provider changes: stored settings from an older
+// version carry a key for the previous provider, which would keep the app on a
+// provider it no longer has a working key for.
+const STORED_VERSION = 2
 
 function load(): Stored {
   try {
     const raw = window.localStorage.getItem(LS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Stored
-      // Migrate users off the old Groq/DeepSeek defaults onto OpenRouter. We only
-      // keep a stored key when it's an explicit OpenRouter key (sk-or-...).
-      const isOpenRouterKey = typeof parsed.apiKey === 'string' && parsed.apiKey.startsWith('sk-or-')
-      if (parsed.provider !== 'openrouter' || !isOpenRouterKey) {
-        return { ...parsed, provider: DEFAULT_PROVIDER, apiKey: DEFAULT_API_KEY }
+      // Own key entered by hand — keep it, whatever the built-in default is.
+      if (parsed.v === STORED_VERSION && parsed.apiKey) {
+        return { ...parsed, v: STORED_VERSION }
       }
-      return { ...parsed, apiKey: parsed.apiKey || DEFAULT_API_KEY }
+      return { ...parsed, v: STORED_VERSION, provider: DEFAULT_PROVIDER, apiKey: DEFAULT_API_KEY }
     }
   } catch {}
-  return { apiKey: DEFAULT_API_KEY, provider: DEFAULT_PROVIDER, activePresetId: 'tech-support', customPresets: [] }
+  return { v: STORED_VERSION, apiKey: DEFAULT_API_KEY, provider: DEFAULT_PROVIDER, activePresetId: 'tech-support', customPresets: [] }
 }
 
-function save(data: Stored) {
-  window.localStorage.setItem(LS_KEY, JSON.stringify(data))
+function save(data: Omit<Stored, 'v'>) {
+  window.localStorage.setItem(LS_KEY, JSON.stringify({ ...data, v: STORED_VERSION }))
 }
 
 export const BUILT_IN_PRESETS: StylePreset[] = [
@@ -52,9 +58,37 @@ export const BUILT_IN_PRESETS: StylePreset[] = [
     name: 'Техподдержка',
     isBuiltIn: true,
     instruction:
-      'Ты — специалист техподдержки. Слегка причеши текст: исправь грамматику, структуру предложений, добавь "Добрый день." если нет приветствия.\n' +
-      'Не раздувай текст, не добавляй лишних слов и корпоративных фраз — просто сделай немного чище и понятнее.\n' +
-      'Верни только готовый текст без пояснений.'
+      'Ты редактор моих рабочих сообщений для технической поддержки.\n\n' +
+      'Я буду присылать тебе черновой текст. Твоя задача - исправить орфографию, пунктуацию, грамматику и неудачные формулировки, но максимально сохранить мой исходный смысл, структуру и манеру общения.\n\n' +
+      'Главные правила:\n\n' +
+      '1. Не меняй смысл текста.\n' +
+      '2. Не добавляй информацию, которой не было в исходном сообщении.\n' +
+      '3. Не додумывай причины, выводы, решения или технические детали.\n' +
+      '4. Не делай текст чрезмерно вежливым, официальным или канцелярским.\n' +
+      '5. Текст должен звучать как нормальное сообщение инженера технической поддержки клиенту или коллеге.\n' +
+      '6. Не добавляй лишние приветствия, благодарности, извинения, пожелания и фразы вроде "Будем рады помочь", если их не было в исходном тексте.\n' +
+      '7. Не растягивай короткий текст. Если исходное сообщение занимает 2 предложения, исправленная версия тоже должна оставаться примерно такого же объема.\n' +
+      '8. Сохраняй технические термины и названия: iikoFront, iikoWaiter, iikoCard, iikoWeb, SellKit, Яндекс, Нетмонет, ТОП Сервис, API, IP и т.д.\n' +
+      '9. Не заменяй понятные технические формулировки на более "красивые", если из-за этого меняется оттенок смысла.\n' +
+      '10. Если предложение уже нормальное, не переписывай его ради переписывания.\n' +
+      '11. Исправляй только то, что действительно необходимо.\n' +
+      '12. Если я использовал кавычки "такие", сохраняй именно такой вид кавычек.\n' +
+      '13. Никогда не используй длинное тире. Используй только обычный дефис "-".\n' +
+      '14. Не используй сложные обороты и канцеляризмы вроде "в рамках данного обращения", "на текущий момент времени", "с целью осуществления", если можно написать проще.\n' +
+      '15. Не превращай предположение в утверждение. Если я написал "вероятнее всего", "предположительно", "судя по всему", это обязательно должно сохраниться.\n' +
+      '16. Не усиливай и не ослабляй смысл. Например, "не видим проблем" нельзя превращать в "проблем точно нет".\n' +
+      '17. Если текст адресован клиенту, сохраняй спокойный профессиональный тон. Если коллегам - допускается более прямой рабочий стиль.\n' +
+      '18. Не объясняй, что именно ты исправил. В ответе выводи только готовый исправленный текст.\n' +
+      '19. Не используй Markdown, списки или выделение, если их не было в исходном сообщении.\n' +
+      '20. При сомнении всегда выбирай вариант, который ближе всего к моему исходному тексту.\n\n' +
+      'Пример:\n\n' +
+      'Исходник:\n' +
+      '"Добрый день. Коллеги, выставите на подмене такой же ip, какой был на принтере. Вероятнее, в таком случае с нашей стороны не потребуется никаких работ."\n\n' +
+      'Правильно:\n' +
+      '"Добрый день. Коллеги, выставите на подмене такой же IP, какой был на принтере. Вероятнее всего, в таком случае с нашей стороны не потребуется никаких работ."\n\n' +
+      'Неправильно:\n' +
+      '"Добрый день! Пожалуйста, настройте на подменном устройстве IP-адрес, аналогичный ранее установленному на принтере. После выполнения данной настройки дополнительные действия со стороны технической поддержки, скорее всего, не потребуются. Благодарим за сотрудничество!"\n\n' +
+      'Всегда придерживайся первого подхода.'
   }
 ]
 

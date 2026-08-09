@@ -27,10 +27,10 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function tomorrowAtTen(): string {
+function tomorrowAtEleven(): string {
   const date = new Date()
   date.setDate(date.getDate() + 1)
-  date.setHours(10, 0, 0, 0)
+  date.setHours(11, 0, 0, 0)
   return toDateTimeLocalValue(date)
 }
 
@@ -51,7 +51,8 @@ function toHtmlComment(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
   if (!escaped.trim()) return ''
-  return `<div style="white-space: pre-wrap;">${escaped}</div>`
+  // Zammad strips the style attribute, so line breaks must be real <br> elements.
+  return `<div>${escaped.replace(/\r\n|\r|\n/g, '<br>')}</div>`
 }
 
 function resolveDefaultGroupId(
@@ -674,6 +675,7 @@ export function QuickTicketModal() {
   const openTab = useTabsStore(s => s.openTab)
   const { user: currentUser } = useAuthStore()
   const { isQuickTicketOpen, setQuickTicketOpen } = useUIStore()
+  const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
 
   const { data: filtersData } = useTicketFilters()
 
@@ -724,7 +726,7 @@ export function QuickTicketModal() {
       setCreateTicketUserId(currentUser?.id ? String(currentUser.id) : '')
       setCreateTicketStateId('1')
       setCreateTicketPriorityId('2')
-      setCreateTicketPendingTime(tomorrowAtTen())
+      setCreateTicketPendingTime(tomorrowAtEleven())
       setCreateTicketReasonIds([])
       setCreateTicketTimeUnit('')
       setCreateTicketCloseComment('')
@@ -782,6 +784,13 @@ export function QuickTicketModal() {
     }))
 
   const handleCreateTicket = async () => {
+    // clients refuses a ticket without a client and answers with a page that
+    // carries no ticket id, which used to surface as an unrelated "не удалось
+    // определить номер" error.
+    if (!createTicketModalClient) {
+      setCreateTicketError('Выберите клиента — без него заявка не создаётся')
+      return
+    }
     setCreateTicketLoading(true)
     setCreateTicketError('')
     try {
@@ -811,7 +820,7 @@ export function QuickTicketModal() {
           })
         }
         setQuickTicketOpen(false)
-        openTab(`/dashboard/tickets/${res.newTicketId}`)
+        if (openCreatedTicket) openTab(`/dashboard/tickets/${res.newTicketId}`)
       } else {
         throw new Error('Не удалось получить ID новой заявки')
       }
@@ -823,6 +832,10 @@ export function QuickTicketModal() {
   }
 
   const handleCloseTicket = async () => {
+    if (!createTicketModalClient) {
+      setCreateTicketError('Выберите клиента — без него заявка не создаётся')
+      return
+    }
     if (!createTicketTitle.trim() || !createTicketBody.trim()) {
       setCreateTicketError('Заполните тему и описание заявки')
       return
@@ -876,7 +889,7 @@ export function QuickTicketModal() {
       })
 
       setQuickTicketOpen(false)
-      openTab(`/dashboard/tickets/${res.newTicketId}`)
+      if (openCreatedTicket) openTab(`/dashboard/tickets/${res.newTicketId}`)
     } catch (err) {
       setCreateTicketError(err instanceof Error ? err.message : 'Ошибка при закрытии заявки')
     } finally {

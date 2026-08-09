@@ -7,10 +7,14 @@ import { useTabsStore } from '@/store/tabs'
 import { useTicketFilters, useMyTicketsCounts } from '@/hooks/useTickets'
 import { queryClient } from '@/lib/queryClient'
 import { QuickTicketModal } from '@/components/tickets/QuickTicketModal'
+import { showContextMenu, separator } from '@/lib/contextMenu'
+import { ticketIdFromPath } from '@/lib/tabTitles'
 
 export default function DashboardPage() {
   const status = useAuthStore((s) => s.status)
   const openTab = useTabsStore((s) => s.openTab)
+  const navigateActive = useTabsStore((s) => s.navigateActive)
+  const openInNewWindow = useTabsStore((s) => s.openInNewWindow)
 
   useTicketFilters()
   useMyTicketsCounts()
@@ -56,6 +60,29 @@ export default function DashboardPage() {
     })
   }, [status])
 
+  // Anything tagged with data-tab-path (ticket rows, my-ticket cards, links in
+  // articles) gets the same menu, so the actions follow the target instead of
+  // the generic edit menu.
+  const showTargetContextMenu = async (e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest('[data-tab-path]')
+    const path = el?.getAttribute('data-tab-path')
+    if (!path) return
+
+    e.preventDefault()
+    const ticketId = ticketIdFromPath(path)
+    const picked = await showContextMenu([
+      { id: 'open', label: 'Открыть' },
+      { id: 'new-tab', label: 'Открыть в новой вкладке' },
+      { id: 'new-window', label: 'Открыть в отдельном окне' },
+      ...(ticketId ? [separator(), { id: 'copy-id', label: `Копировать номер заявки (${ticketId})` }] : [])
+    ])
+
+    if (picked === 'open') navigateActive(path)
+    else if (picked === 'new-tab') openTab(path)
+    else if (picked === 'new-window') openInNewWindow(path)
+    else if (picked === 'copy-id' && ticketId) navigator.clipboard.writeText(ticketId)
+  }
+
   const openFromEvent = (e: React.MouseEvent) => {
     const el = (e.target as HTMLElement).closest('[data-tab-path]')
     const path = el?.getAttribute('data-tab-path')
@@ -73,6 +100,7 @@ export default function DashboardPage() {
         if (e.button === 1 && (e.target as HTMLElement).closest('[data-tab-path]')) e.preventDefault()
       }}
       onAuxClickCapture={(e) => { if (e.button === 1) openFromEvent(e) }}
+      onContextMenuCapture={(e) => { showTargetContextMenu(e) }}
       onClickCapture={(e) => { if (e.ctrlKey || e.metaKey) openFromEvent(e) }}
     >
       <Sidebar />

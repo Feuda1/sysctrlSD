@@ -894,7 +894,10 @@ function toHtmlComment(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
   if (!escaped.trim()) return ''
-  return `<div style="white-space: pre-wrap;">${escaped}</div>`
+  // Zammad strips the style attribute when it sanitizes an article, so white-space
+  // alone lost every line break and the comment arrived as a single line — the
+  // breaks have to be real <br> elements.
+  return `<div>${escaped.replace(/\r\n|\r|\n/g, '<br>')}</div>`
 }
 
 function toDateTimeLocalValue(date: Date): string {
@@ -902,10 +905,10 @@ function toDateTimeLocalValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function tomorrowAtTen(): string {
+function tomorrowAtEleven(): string {
   const date = new Date()
   date.setDate(date.getDate() + 1)
-  date.setHours(10, 0, 0, 0)
+  date.setHours(11, 0, 0, 0)
   return toDateTimeLocalValue(date)
 }
 
@@ -1678,6 +1681,7 @@ export default function TicketDetailsPage() {
   const allowTicketStatusWithoutPublicComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
   const afterCommentSubmitAction = useUIStore(s => s.afterCommentSubmitAction)
   const hideScrollDownArrow = useUIStore(s => s.hideScrollDownArrow)
+  const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
   const currentUser = useAuthStore(s => s.user)
   const closeTab = useTabsStore(s => s.closeTab)
   const activeTabId = useTabsStore(s => s.activeTabId)
@@ -1754,7 +1758,12 @@ export default function TicketDetailsPage() {
       if (res.ok && res.newTicketId) {
         setCreateSubTicketModalOpen(false)
         queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-        navigate(`/dashboard/tickets/${res.newTicketId}`)
+        if (openCreatedTicket) navigate(`/dashboard/tickets/${res.newTicketId}`)
+      } else {
+        // The subtask may still have been created — refresh so the list shows it
+        // instead of leaving the modal hanging without a hint.
+        queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+        setCreateSubTicketError('Не удалось определить номер созданной подзадачи. Обновите заявку и проверьте список вложенных заявок.')
       }
     } catch (err: any) {
       setCreateSubTicketError(err.message || 'Ошибка создания подзадачи')
@@ -1816,7 +1825,7 @@ export default function TicketDetailsPage() {
     setPriorityId(ticket.priority.id || null)
     setIikoReasonIds((ticket.iikoReasons ?? []).map(reason => reason.id))
     setTagIds((ticket.tags ?? []).map(tag => tag.id))
-    setCommentPendingTime(dateTimeLocalFromRaw(ticket.pendingTime) || tomorrowAtTen())
+    setCommentPendingTime(dateTimeLocalFromRaw(ticket.pendingTime) || tomorrowAtEleven())
   }, [detailsData?.ticket?.id])
 
   const [mergeSearch, setMergeSearch] = useState('')

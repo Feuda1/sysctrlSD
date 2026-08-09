@@ -134,6 +134,9 @@ export interface TicketListParams {
   sortAsc: boolean
   searchQuery?: string
   myTicketsStateId?: number
+  /** Inclusive period the ticket was created in, as YYYY-MM-DD. */
+  createdFrom?: string
+  createdTo?: string
 }
 
 export interface TicketListResponse {

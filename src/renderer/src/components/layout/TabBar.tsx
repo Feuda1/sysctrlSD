@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { getUserInitials, getUserDisplayName, cn } from '@/lib/utils'
 import { pathToTabMeta, ticketIdFromPath } from '@/lib/tabTitles'
+import { showContextMenu, separator } from '@/lib/contextMenu'
 import { useNotificationsStore } from '@/store/notifications'
 
 const DEFAULT_PATH = '/dashboard/tickets'
@@ -52,6 +53,26 @@ export function TabBar() {
   const submitId = () => {
     const id = idInput.trim().replace(/\D/g, '')
     if (id) navigateActive(`/dashboard/tickets/${id}`)
+  }
+
+  const handleTabContextMenu = async (tabId: string, path: string) => {
+    const ticketId = ticketIdFromPath(path)
+    const picked = await showContextMenu([
+      { id: 'duplicate', label: 'Открыть в новой вкладке' },
+      { id: 'new-window', label: 'Открыть в отдельном окне' },
+      ...(ticketId ? [separator(), { id: 'copy-id', label: `Копировать номер заявки (${ticketId})` }] : []),
+      separator(),
+      { id: 'close', label: 'Закрыть вкладку' },
+      { id: 'close-others', label: 'Закрыть остальные вкладки', enabled: tabs.length > 1 }
+    ])
+
+    if (picked === 'duplicate') openTab(path)
+    else if (picked === 'new-window') openInNewWindow(path)
+    else if (picked === 'copy-id' && ticketId) navigator.clipboard.writeText(ticketId)
+    else if (picked === 'close') closeTab(tabId)
+    else if (picked === 'close-others') {
+      tabs.filter(t => t.id !== tabId).forEach(t => closeTab(t.id))
+    }
   }
 
   const initials = user ? getUserInitials(user.firstname, user.lastname) : '??'
@@ -171,6 +192,7 @@ export function TabBar() {
                 onDragEnd={(e) => handleTabDragEnd(tab.id, tab.path, e)}
                 onClick={() => setActive(tab.id)}
                 onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id) } }}
+                onContextMenu={(e) => { e.preventDefault(); handleTabContextMenu(tab.id, tab.path) }}
                 title={title}
                 className={cn(
                   'no-drag group flex h-7 min-w-[44px] max-w-[180px] flex-1 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2 text-xs transition-colors',

@@ -11,6 +11,7 @@ import { TicketTable } from '@/components/tickets/TicketTable'
 import { useTickets, useTicketFilters, useMyTicketsCounts } from '@/hooks/useTickets'
 import { getStateBadgeClass, type Ticket, type TicketFilter } from '@/types/ticket'
 import { ManageFiltersModal } from '@/components/tickets/ManageFiltersModal'
+import { DateRangePicker, EMPTY_RANGE, type DateRange } from '@/components/tickets/DateRangePicker'
 import { useUIStore } from '@/store/ui'
 import { cn } from '@/lib/utils'
 
@@ -113,7 +114,33 @@ function StateChip({ state, color, tickets, onOpenTicket }: StateChipProps) {
 }
 
 const SORTING_STORAGE_KEY = 'tickets.sorting'
+const ACTIVE_FILTER_STORAGE_KEY = 'tickets.activeFilterWrapperId'
+const DATE_RANGE_STORAGE_KEY = 'tickets.dateRange'
+
+// Same reason as the filter above: opening a ticket unmounts the list, and the
+// chosen period has to survive that.
+function readStoredDateRange(): DateRange {
+  try {
+    const raw = window.localStorage.getItem(DATE_RANGE_STORAGE_KEY)
+    if (!raw) return EMPTY_RANGE
+    const parsed = JSON.parse(raw) as DateRange
+    const isDay = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    return {
+      from: isDay(parsed?.from) ? parsed.from : null,
+      to: isDay(parsed?.to) ? parsed.to : null
+    }
+  } catch {
+    return EMPTY_RANGE
+  }
+}
 const DEFAULT_SORTING: SortingState = [{ id: 'updatedAt', desc: true }]
+
+// Opening a ticket unmounts this page, so the chosen filter has to outlive the
+// component — otherwise coming back always lands on the first tab.
+function readStoredFilterWrapperId(): number | null {
+  const raw = Number(window.localStorage.getItem(ACTIVE_FILTER_STORAGE_KEY))
+  return Number.isFinite(raw) && raw > 0 ? raw : null
+}
 
 function readStoredSorting(): SortingState {
   try {
@@ -137,7 +164,8 @@ function readStoredSorting(): SortingState {
 export default function TicketsPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [activeFilter, setActiveFilter] = useState<TicketFilter | null>(null)
+  const [activeFilterWrapperId, setActiveFilterWrapperId] = useState<number | null>(() => readStoredFilterWrapperId())
+  const [dateRange, setDateRange] = useState<DateRange>(() => readStoredDateRange())
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [sorting, setSorting] = useState<SortingState>(() => readStoredSorting())
@@ -173,7 +201,7 @@ export default function TicketsPage() {
   const tabs = allFilters
     .filter(f => f.enabled !== false)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-  const currentFilter = tabs.find(f => f.wrapperId === activeFilter?.wrapperId) ?? tabs[0] ?? null
+  const currentFilter = tabs.find(f => f.wrapperId === activeFilterWrapperId) ?? tabs[0] ?? null
 
   const activeStatesWithCounts = (filtersData?.states ?? [])
     .map(state => ({
@@ -192,7 +220,9 @@ export default function TicketsPage() {
     sortField,
     sortAsc,
     searchQuery,
-    myTicketsStateId: undefined
+    myTicketsStateId: undefined,
+    createdFrom: dateRange.from ?? undefined,
+    createdTo: dateRange.to ?? undefined
   }
 
   const { data, isLoading, isPlaceholderData, isError, error } = useTickets(
@@ -201,7 +231,18 @@ export default function TicketsPage() {
   )
 
   const handleFilterSelect = (filter: TicketFilter) => {
-    setActiveFilter(filter)
+    setActiveFilterWrapperId(filter.wrapperId)
+    window.localStorage.setItem(ACTIVE_FILTER_STORAGE_KEY, String(filter.wrapperId))
+    setPage(1)
+  }
+
+  const handleDateRangeChange = (range: DateRange) => {
+    setDateRange(range)
+    if (range.from || range.to) {
+      window.localStorage.setItem(DATE_RANGE_STORAGE_KEY, JSON.stringify(range))
+    } else {
+      window.localStorage.removeItem(DATE_RANGE_STORAGE_KEY)
+    }
     setPage(1)
   }
 
@@ -224,6 +265,7 @@ export default function TicketsPage() {
     <div className="flex h-full flex-col gap-3 min-h-0">
       <div className="shrink-0 flex items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
           <FilterTabs
             tabs={tabs}
             activeFilter={currentFilter}

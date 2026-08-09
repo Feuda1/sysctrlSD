@@ -117,6 +117,27 @@
     user-select: text;
   }
 
+  /* Controls are actions, not content — inside a .select-text page their labels
+     would otherwise highlight while clicking or double-clicking. */
+  button,
+  summary,
+  [role='button'],
+  [role='tab'],
+  [role='option'] {
+    user-select: none;
+  }
+
+  /* The white square in the corner of a scrollable textarea is where the two
+     scrollbars meet; Chromium paints that corner white by default. The resize
+     grip sits in the same spot, so both are cleared. */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-resizer {
+    display: none;
+  }
+
   /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 5px;

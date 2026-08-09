@@ -10,6 +10,13 @@ const SECRET_TICKET_CONTROLS_KEY = 'ui.secretTicketControls'
 const SECRET_TICKET_REASON_CONTROLS_KEY = 'ui.secretTicketReasonControls'
 const AFTER_COMMENT_SUBMIT_KEY = 'ui.afterCommentSubmitAction'
 const HIDE_SCROLL_DOWN_ARROW_KEY = 'ui.hideScrollDownArrow'
+const OPEN_CREATED_TICKET_KEY = 'ui.openCreatedTicket'
+
+// Opening the new ticket is the long-standing behaviour, so only an explicit
+// '0' turns it off.
+function getStoredOpenCreatedTicket(): boolean {
+  return window.localStorage.getItem(OPEN_CREATED_TICKET_KEY) !== '0'
+}
 
 function getStoredAfterCommentSubmitAction(): 'stay' | 'close' {
   const stored = window.localStorage.getItem(AFTER_COMMENT_SUBMIT_KEY)
@@ -91,6 +98,8 @@ interface UIState {
   setAfterCommentSubmitAction: (action: 'stay' | 'close') => void
   hideScrollDownArrow: boolean
   setHideScrollDownArrow: (hide: boolean) => void
+  openCreatedTicket: boolean
+  setOpenCreatedTicket: (open: boolean) => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -101,6 +110,7 @@ export const useUIStore = create<UIState>((set) => ({
   allowTicketPendingWithoutReason: getStoredSecretTicketReasonControls(),
   afterCommentSubmitAction: getStoredAfterCommentSubmitAction(),
   hideScrollDownArrow: getStoredHideScrollDownArrow(),
+  openCreatedTicket: getStoredOpenCreatedTicket(),
   isQuickTicketOpen: false,
   resolvedTheme: 'dark',
   sidebarCollapsed: false,
@@ -166,5 +176,10 @@ export const useUIStore = create<UIState>((set) => ({
   setHideScrollDownArrow: (hide) => {
     window.localStorage.setItem(HIDE_SCROLL_DOWN_ARROW_KEY, hide ? '1' : '0')
     set({ hideScrollDownArrow: hide })
+  },
+
+  setOpenCreatedTicket: (open) => {
+    window.localStorage.setItem(OPEN_CREATED_TICKET_KEY, open ? '1' : '0')
+    set({ openCreatedTicket: open })
   }
 }))
