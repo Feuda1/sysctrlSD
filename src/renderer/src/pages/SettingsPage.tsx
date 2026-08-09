@@ -581,6 +581,28 @@ function AfterCommentSubmitSettings() {
   )
 }
 
+function OpenCreatedTicketSettings() {
+  const { openCreatedTicket, setOpenCreatedTicket } = useUIStore()
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">После создания заявки</p>
+        <p className="text-xs text-muted-foreground">Открывать ли только что созданную заявку — быструю, по звонку или вложенную</p>
+      </div>
+
+      <SegmentControl
+        value={openCreatedTicket ? 'open' : 'stay'}
+        options={[
+          { value: 'open', label: 'Переходить на созданную заявку' },
+          { value: 'stay', label: 'Не переходить' }
+        ]}
+        onChange={(value) => setOpenCreatedTicket(value === 'open')}
+      />
+    </div>
+  )
+}
+
 function ScrollDownArrowSettings() {
   const { hideScrollDownArrow, setHideScrollDownArrow } = useUIStore()
 
@@ -919,7 +941,7 @@ function NotificationSettingsSection() {
       {allFilters.length > 0 && (
         <div className="space-y-3">
           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-2">Правила по фильтрам</p>
-          <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+          <div className="space-y-3 pr-1">
             {allFilters.map((filter) => {
               const rule = settings.rules.find((r) => r.wrapperId === filter.wrapperId)
               const enabled = !!rule?.enabled
@@ -1357,7 +1379,7 @@ function MacroSettingsSection() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[520px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pr-1">
             <div className="space-y-4 rounded-xl border border-border/40 bg-muted/10 backdrop-blur-md p-5 shadow-sm">
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="macro-label" className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
@@ -1589,7 +1611,9 @@ function MacroSettingsSection() {
             </Button>
           </div>
 
-          <div className="max-h-[460px] overflow-y-auto pr-1">
+          {/* No nested scroller: the settings card already scrolls, and a second
+              one clipped the last macros with a scrollbar nobody could see. */}
+          <div className="pr-1">
             {macros.length === 0 ? (
               <div className="flex flex-col items-center justify-center text-center py-12 px-4 rounded-xl border border-dashed border-border/80 bg-muted/5">
                 <Command className="h-8 w-8 text-muted-foreground/60 mb-2.5 animate-pulse" />
@@ -1797,9 +1821,9 @@ export default function SettingsPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto max-w-4xl space-y-6 pt-8 px-4"
+        className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-6 pt-8 px-4 pb-2"
       >
-        <div className="flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between">
           <h2 onClick={handleSettingsTitleClick} className="text-base font-bold tracking-tight text-foreground">Настройки</h2>
           <Button
             variant="ghost"
@@ -1812,8 +1836,12 @@ export default function SettingsPage() {
           </Button>
         </div>
 
-        <div className="flex flex-col md:flex-row gap-6 items-start">
-          <div className="flex flex-row md:flex-col w-full md:w-48 shrink-0 gap-1 rounded-xl border border-border/60 bg-card p-1.5 shadow-sm">
+        {/* The row fills whatever height is left and the card scrolls inside it:
+            sizing the card by its content made the whole page grow and shrink
+            with every tab, and a vh-based height did not match the real
+            viewport. */}
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row gap-6">
+          <div className="flex flex-row md:flex-col w-full md:w-48 shrink-0 self-start gap-1 rounded-xl border border-border/60 bg-card p-1.5 shadow-sm">
             {SETTINGS_TABS.map((tab) => {
               const TabIcon = tab.icon
               const active = activeTab === tab.id
@@ -1836,7 +1864,7 @@ export default function SettingsPage() {
             })}
           </div>
 
-          <div className="flex-1 w-full min-w-0 rounded-xl border border-border/60 bg-card p-6 shadow-sm min-h-[420px]">
+          <div className="flex-1 w-full min-w-0 min-h-0 overflow-y-auto rounded-xl border border-border/60 bg-card p-6 shadow-sm">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
@@ -1872,6 +1900,8 @@ export default function SettingsPage() {
                     <ChatStyleSettings />
                     <div className="h-px bg-border/40" />
                     <AfterCommentSubmitSettings />
+                    <div className="h-px bg-border/40" />
+                    <OpenCreatedTicketSettings />
                     <div className="h-px bg-border/40" />
                     <ScrollDownArrowSettings />
                   </div>

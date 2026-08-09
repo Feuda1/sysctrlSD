@@ -105,13 +105,19 @@ function attachContextMenu(win: BrowserWindow): void {
       }))
     }
 
-    const hasEdit = params.editFlags.canCut || params.editFlags.canCopy || params.editFlags.canPaste || params.editFlags.canSelectAll
-    if (hasEdit) {
+    // Only offer editing where editing is possible. "Выбрать всё" used to appear
+    // on every right click anywhere in the app, which is noise — the renderer
+    // builds its own menu for tabs, tickets and the like.
+    const hasSelection = !!params.selectionText.trim()
+    if (params.isEditable) {
       if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }))
-      if (params.editFlags.canCut) menu.append(new MenuItem({ label: 'Вырезать', role: 'cut' }))
-      if (params.editFlags.canCopy) menu.append(new MenuItem({ label: 'Копировать', role: 'copy' }))
+      if (params.editFlags.canCut && hasSelection) menu.append(new MenuItem({ label: 'Вырезать', role: 'cut' }))
+      if (params.editFlags.canCopy && hasSelection) menu.append(new MenuItem({ label: 'Копировать', role: 'copy' }))
       if (params.editFlags.canPaste) menu.append(new MenuItem({ label: 'Вставить', role: 'paste' }))
       if (params.editFlags.canSelectAll) menu.append(new MenuItem({ label: 'Выбрать всё', role: 'selectAll' }))
+    } else if (hasSelection && params.editFlags.canCopy) {
+      if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(new MenuItem({ label: 'Копировать', role: 'copy' }))
     }
 
     if (menu.items.length > 0) menu.popup({ window: win })
@@ -310,6 +316,37 @@ app.whenReady().then(() => {
 
   ipcMain.handle('windows:open', (_event, initialPath?: string, bounds?: WindowBounds) => {
     createWindow(typeof initialPath === 'string' ? initialPath : undefined, bounds)
+  })
+
+  // Native context menu built by the renderer, which is the only side that knows
+  // what was right-clicked. Resolves with the id of the chosen item, or null.
+  ipcMain.handle('app:showContextMenu', (event, items: { id?: string; label?: string; type?: 'separator'; enabled?: boolean }[]) => {
+    const win = senderWindow(event)
+    if (!win || !Array.isArray(items) || items.length === 0) return null
+
+    return new Promise<string | null>(resolve => {
+      let picked: string | null = null
+      const menu = new Menu()
+
+      for (const item of items) {
+        if (item?.type === 'separator') {
+          menu.append(new MenuItem({ type: 'separator' }))
+          continue
+        }
+        if (!item?.id || !item?.label) continue
+        menu.append(new MenuItem({
+          label: item.label,
+          enabled: item.enabled !== false,
+          click: () => { picked = item.id as string }
+        }))
+      }
+
+      if (menu.items.length === 0) {
+        resolve(null)
+        return
+      }
+      menu.popup({ window: win, callback: () => resolve(picked) })
+    })
   })
 
   // Installing an update must bypass close-to-tray and actually quit.

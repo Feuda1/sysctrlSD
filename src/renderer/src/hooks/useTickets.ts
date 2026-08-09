@@ -3,7 +3,7 @@ import type { Ticket, TicketFiltersResponse, TicketListParams, TicketListRespons
 
 export function useTickets(params: TicketListParams, enabled = true) {
   return useQuery<TicketListResponse, Error>({
-    queryKey: ['tickets', params.wrapperId, params.page, params.perPage, params.sortField, params.sortAsc, params.searchQuery, params.myTicketsStateId],
+    queryKey: ['tickets', params.wrapperId, params.page, params.perPage, params.sortField, params.sortAsc, params.searchQuery, params.myTicketsStateId, params.createdFrom, params.createdTo],
     queryFn: () => window.api.tickets.list(params),
     enabled: enabled && (params.wrapperId > 0 || (!!params.searchQuery && params.searchQuery.trim().length > 0) || params.myTicketsStateId !== undefined),
     staleTime: 15000,

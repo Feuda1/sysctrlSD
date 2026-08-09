@@ -65,6 +65,9 @@ export interface TicketListParams {
   sortAsc: boolean
   searchQuery?: string
   myTicketsStateId?: number
+  /** Inclusive period the ticket was created in, as YYYY-MM-DD. */
+  createdFrom?: string
+  createdTo?: string
 }
 
 export interface TicketListResponse {
@@ -1248,10 +1251,73 @@ async function loadMeta(token: string): Promise<void> {
     }
 
     await loadDenvicUsers(h)
+    await applyClientsAgentNames()
 
     metaLoaded = true
   } catch (err) {
     logger.error('Исключение при загрузке метаданных:', err)
+  }
+}
+
+let clientsAgentNamesCache: { at: number; names: Map<number, string> } | null = null
+
+// Zammad stores many agents without firstname/lastname, so their name degrades
+// to a transliterated login ("Podgajnyj"). clients keeps the real names in the
+// owner picker of its create form, keyed by the same user ids the app already
+// posts there.
+async function fetchClientsAgentNames(): Promise<Map<number, string>> {
+  if (clientsAgentNamesCache && Date.now() - clientsAgentNamesCache.at < 30 * 60_000) {
+    return clientsAgentNamesCache.names
+  }
+
+  const names = new Map<number, string>()
+  try {
+    await ensureClientsSession()
+    const resp = await net.fetch(`${WRAPPER_BASE}/Tickets/Create`, {
+      session: wrapperSession(),
+      headers: { 'User-Agent': CLIENTS_USER_AGENT }
+    } as any)
+    if (resp.ok) {
+      const html = await resp.text()
+      const select = html.match(/<select[^>]*id="selectedUserId"[\s\S]*?<\/select>/i)?.[0] ?? ''
+      for (const option of select.matchAll(/<option[^>]*value="(\d+)"[^>]*>([\s\S]*?)<\/option>/gi)) {
+        const userId = parseInt(option[1], 10)
+        const name = decodeHtml(stripHtml(option[2])).trim()
+        if (userId > 0 && name) names.set(userId, name)
+      }
+    }
+  } catch (err) {
+    logger.warn('Не удалось получить имена сотрудников из clients:', err)
+  }
+
+  if (names.size > 0) {
+    clientsAgentNamesCache = { at: Date.now(), names }
+    return names
+  }
+  return clientsAgentNamesCache?.names ?? names
+}
+
+// Only names that degraded to a login are replaced — a real name in Zammad
+// always wins.
+async function applyClientsAgentNames(): Promise<void> {
+  const needsName = Object.keys(meta.users)
+    .map(Number)
+    .filter(id => id > 0 && isFallbackUserName(meta.users[id]))
+  if (needsName.length === 0) return
+
+  const names = await fetchClientsAgentNames()
+  if (names.size === 0) return
+
+  let replaced = 0
+  for (const userId of needsName) {
+    const name = names.get(userId)
+    if (name && name !== meta.users[userId]) {
+      meta.users[userId] = name
+      replaced += 1
+    }
+  }
+  if (replaced > 0) {
+    logger.info(`Имена сотрудников уточнены по данным clients: ${replaced}`)
   }
 }
 
@@ -1291,6 +1357,8 @@ async function ensureUsersLoaded(userIds: number[]): Promise<void> {
       logger.warn('Не удалось загрузить недостающих пользователей:', err)
     }
   }
+
+  await applyClientsAgentNames()
 }
 
 async function getUserId(): Promise<number | null> {
@@ -1895,6 +1963,35 @@ async function getActiveTickets(myUserId: number, token: string): Promise<{ tick
   }
 }
 
+// Local day boundaries: the user picks days in their own timezone, while Zammad
+// compares against UTC timestamps.
+function dayRangeBounds(from?: string, to?: string): { start: number | null; end: number | null } {
+  const start = from ? new Date(`${from}T00:00:00`).getTime() : NaN
+  const end = to ? new Date(`${to}T23:59:59.999`).getTime() : NaN
+  return {
+    start: Number.isFinite(start) ? start : null,
+    end: Number.isFinite(end) ? end : null
+  }
+}
+
+function createdRangeQuery(from?: string, to?: string): string {
+  const { start, end } = dayRangeBounds(from, to)
+  if (start === null && end === null) return ''
+  const lower = start === null ? '*' : new Date(start).toISOString()
+  const upper = end === null ? '*' : new Date(end).toISOString()
+  return `created_at:[${lower} TO ${upper}]`
+}
+
+function isInCreatedRange(raw: any, from?: string, to?: string): boolean {
+  const { start, end } = dayRangeBounds(from, to)
+  if (start === null && end === null) return true
+  const createdAt = Date.parse(String(raw?.created_at ?? ''))
+  if (!Number.isFinite(createdAt)) return false
+  if (start !== null && createdAt < start) return false
+  if (end !== null && createdAt > end) return false
+  return true
+}
+
 async function executeFetchZammadTickets(params: TicketListParams): Promise<TicketListResponse> {
   const token = getToken()
   const h = zHeaders(token)
@@ -1936,6 +2033,11 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
       }
     }
 
+    const createdRange = createdRangeQuery(params.createdFrom, params.createdTo)
+    if (createdRange) {
+      query = query.trim() ? `(${query}) AND ${createdRange}` : createdRange
+    }
+
     const SORT_FIELD_MAP: Record<string, string> = {
       updatedAt: 'updated_at',
       createdAt: 'created_at',
@@ -1975,6 +2077,12 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
     filteredRaw = rawTickets.filter(t => parseInt(String(t.state_id ?? '0'), 10) === params.myTicketsStateId)
   } else if (!(params.searchQuery && params.searchQuery.trim())) {
     filteredRaw = filterTicketsLocally(rawTickets, cond, myUserId)
+  }
+
+  // The cached "my tickets" path never went through the search query, and the
+  // search index can be a moment behind, so the period is enforced here too.
+  if (params.createdFrom || params.createdTo) {
+    filteredRaw = filteredRaw.filter(t => isInCreatedRange(t, params.createdFrom, params.createdTo))
   }
 
   const ownerIds = filteredRaw.map(t => parseInt(String(t.owner_id ?? '0'), 10)).filter(id => id > 0)
@@ -3348,6 +3456,7 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
     throw new Error(describeHttpError(resp.status, text, 'Не удалось отправить комментарий'))
   }
 
+  await markTicketSelfUpdated(params.ticketId)
   clearTicketCaches(params.ticketId)
   return { ok: true }
 }
@@ -3450,6 +3559,7 @@ async function mergeTickets(sourceTicketId: number, targetTicketNumber: string):
     throw new Error(describeHttpError(resp.status, text, 'Не удалось объединить заявки'))
   }
 
+  await markTicketSelfUpdated(sourceTicketId)
   clearTicketCaches(sourceTicketId)
   clearTicketCaches()
   return { ok: true }
@@ -3470,6 +3580,7 @@ async function changeTicketCustomer(ticketId: number, customerId: number): Promi
     throw new Error(describeHttpError(resp.status, text, 'Не удалось сменить клиента'))
   }
 
+  await markTicketSelfUpdated(ticketId)
   clearTicketCaches(ticketId)
   return { ok: true }
 }
@@ -3831,6 +3942,446 @@ export function setupTicketsIpc(): void {
   logger.info('Tickets IPC registered')
 }
 
+const CLIENTS_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+const TICKET_DETAILS_URL_RE = /\/Tickets\/(?:Details|Edit)\/(\d+)/i
+
+interface ClientsFormResponse {
+  status: number
+  location: string | null
+  body: string
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// net.request() is not usable here: even with useSessionCookies it posts without
+// the .AspNetCore.Identity.Application cookie, so clients answers every create
+// with a 302 to /Account/Login and nothing is ever saved. net.fetch() carries the
+// session cookies (it is what the login itself uses), and the redirect it follows
+// lands on /Tickets/Details/<id> — the id of the ticket just created.
+async function postClientsForm(url: string, body: string, referer: string): Promise<ClientsFormResponse> {
+  const response = await net.fetch(url, {
+    method: 'POST',
+    session: wrapperSession(),
+    redirect: 'follow',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Referer: referer,
+      Origin: WRAPPER_BASE,
+      'User-Agent': CLIENTS_USER_AGENT
+    },
+    body
+  } as any)
+
+  const html = await response.text()
+  return {
+    status: response.status,
+    // After a followed redirect this is the landing page, which is exactly what
+    // the Location header would have carried.
+    location: response.url || null,
+    body: html
+  }
+}
+
+function isClientsLoginPage(html: string): boolean {
+  if (!html) return false
+  if (/<form[^>]+action="[^"]*\/Account\/Login/i.test(html)) return true
+  if (/returnUrl=%2f/i.test(html)) return true
+  return /Account\/Login/i.test(html) && /name="password"/i.test(html)
+}
+
+// clients answers an unauthenticated POST with a redirect to the login page, so
+// nothing was created and the request can safely be replayed after logging in.
+function isLoginRedirect(response: ClientsFormResponse): boolean {
+  if (/\/Account\/Login/i.test(String(response.location ?? ''))) return true
+  return isClientsLoginPage(response.body)
+}
+
+// The cookie can still be present while the server already dropped the session,
+// so a login page coming back means "log in again", not "give up".
+async function reloginClientsSession(): Promise<void> {
+  const stored = readStored()
+  if (!stored.savedEmail || !stored.savedPassword) {
+    throw new Error('Сессия clients истекла. Выполните вход в приложение заново.')
+  }
+  await loginWrapper(stored.savedEmail, stored.savedPassword)
+}
+
+// `expected` is the marker that proves we really got the requested page: a login
+// page can come back with status 200, and its antiforgery token would then be
+// posted into the void.
+async function loadClientsPage(url: string, what: string, expected: RegExp): Promise<string> {
+  const fetchOnce = async (): Promise<string> => {
+    const resp = await net.fetch(url, {
+      session: wrapperSession(),
+      headers: { 'User-Agent': CLIENTS_USER_AGENT }
+    } as any)
+    if (!resp.ok) {
+      throw new Error(`Не удалось загрузить страницу ${what}: ${resp.status}`)
+    }
+    return resp.text()
+  }
+
+  let html = await fetchOnce()
+  if (!expected.test(html)) {
+    logger.warn(`Страница ${what} не загрузилась (сессия clients истекла?), выполняю вход заново`)
+    await reloginClientsSession()
+    html = await fetchOnce()
+    if (!expected.test(html)) {
+      throw new Error(isClientsLoginPage(html)
+        ? 'Сессия clients истекла. Выполните вход в приложение заново.'
+        : `Страница ${what} на clients вернулась в неожиданном виде — создание отменено.`)
+    }
+  }
+  return html
+}
+
+function extractRequestVerificationToken(html: string): string | null {
+  const match =
+    html.match(/name="__RequestVerificationToken"[^>]*\bvalue="([^"]+)"/i) ||
+    html.match(/value="([^"]+)"[^>]*name="__RequestVerificationToken"/i)
+  return match ? match[1] : null
+}
+
+function parseTicketIdValue(value: unknown): number | null {
+  const id = parseInt(String(value ?? '').trim(), 10)
+  return Number.isFinite(id) && id > 0 ? id : null
+}
+
+function ticketIdFromUrl(value: unknown): number | null {
+  const match = String(value ?? '').match(TICKET_DETAILS_URL_RE)
+  return match ? parseTicketIdValue(match[1]) : null
+}
+
+function ticketIdFromJsonPayload(payload: any, depth = 0): number | null {
+  if (!payload || typeof payload !== 'object' || depth > 3) return null
+  for (const key of ['newTicketId', 'ticketId', 'TicketId', 'ticket_id', 'zammadTicketId', 'id', 'Id']) {
+    const id = parseTicketIdValue(payload[key])
+    if (id) return id
+  }
+  for (const key of ['url', 'Url', 'redirectUrl', 'RedirectUrl', 'location', 'href']) {
+    const id = ticketIdFromUrl(payload[key])
+    if (id) return id
+  }
+  for (const key of ['data', 'Data', 'ticket', 'Ticket', 'result', 'Result', 'value', 'model']) {
+    const id = ticketIdFromJsonPayload(payload[key], depth + 1)
+    if (id) return id
+  }
+  return null
+}
+
+// The caption field only exists on the create form itself, so it doubles as the
+// proof that the page we loaded is the form and not a login page served with 200.
+const CLIENTS_CREATE_FORM_RE = /\b(?:id|name)="newCaption"/i
+
+// A re-rendered create form means nothing was saved — its ticket links belong to
+// other tickets and must never be mistaken for the new one.
+function isClientsCreateForm(html: string): boolean {
+  return CLIENTS_CREATE_FORM_RE.test(html)
+}
+
+// Loads the create form, posts it, and — if clients bounced the request to the
+// login page — logs in again and replays it. A login redirect means the POST was
+// never processed, so the replay cannot produce a duplicate ticket.
+async function submitClientsCreateForm(opts: {
+  createPageUrl: string
+  what: string
+  buildBody: (html: string, csrfToken: string) => URLSearchParams
+}): Promise<ClientsFormResponse> {
+  let lastResponse: ClientsFormResponse | null = null
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const html = await loadClientsPage(opts.createPageUrl, opts.what, CLIENTS_CREATE_FORM_RE)
+    const csrfToken = extractRequestVerificationToken(html)
+    if (!csrfToken) {
+      throw new Error(`Не удалось извлечь CSRF токен для ${opts.what}`)
+    }
+
+    const response = await postClientsForm(
+      `${WRAPPER_BASE}/Tickets/Create`,
+      opts.buildBody(html, csrfToken).toString(),
+      opts.createPageUrl
+    )
+    logger.info(`Ответ ${opts.what}:`, {
+      status: response.status,
+      location: response.location,
+      createFormReturned: isClientsCreateForm(response.body),
+      loginPageReturned: isClientsLoginPage(response.body)
+    })
+    lastResponse = response
+
+    if (attempt === 0 && isLoginRedirect(response)) {
+      logger.warn(`Запрос ${opts.what} отклонён: сессия clients истекла, выполняю вход заново и повторяю`)
+      await reloginClientsSession()
+      continue
+    }
+    return response
+  }
+
+  return lastResponse as ClientsFormResponse
+}
+
+function ticketIdFromHtml(html: string, excludeIds: number[]): number | null {
+  if (!html) return null
+  // Only unambiguous markers: a page full of ticket links must not be guessed at.
+  const urlPatterns = [
+    /<meta[^>]+http-equiv=["']refresh["'][^>]*url=([^"'>\s]+)/i,
+    /<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']/i,
+    /(?:window\.)?location(?:\.href|\.replace|\.assign)?\s*(?:=|\()\s*["']([^"']+)["']/i
+  ]
+  for (const pattern of urlPatterns) {
+    const id = ticketIdFromUrl(html.match(pattern)?.[1])
+    if (id && !excludeIds.includes(id)) return id
+  }
+  const fieldPatterns = [
+    /\b(?:id|name)=["']ticketId["'][^>]*\bvalue=["'](\d+)["']/i,
+    /\bvalue=["'](\d+)["'][^>]*\b(?:id|name)=["']ticketId["']/i
+  ]
+  for (const pattern of fieldPatterns) {
+    const id = parseTicketIdValue(html.match(pattern)?.[1])
+    if (id && !excludeIds.includes(id)) return id
+  }
+  const candidates = Array.from(new Set(
+    Array.from(html.matchAll(/\/Tickets\/(?:Details|Edit)\/(\d+)/gi))
+      .map(match => parseTicketIdValue(match[1]))
+      .filter((id): id is number => !!id && !excludeIds.includes(id))
+  ))
+  return candidates.length === 1 ? candidates[0] : null
+}
+
+function clientsFormErrorMessage(html: string): string | null {
+  if (!html) return null
+  const patterns = [
+    /<div[^>]*class="[^"]*validation-summary-errors[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="[^"]*alert-danger[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /class="text-danger"[^>]*>([\s\S]*?)<\/span>/i
+  ]
+  for (const pattern of patterns) {
+    const match = html.match(pattern)
+    const text = match ? stripHtml(match[1]) : ''
+    if (text) return text
+  }
+  return null
+}
+
+// Reads the parent's children table again and returns the row that was not there
+// before the POST — the most direct proof of which subtask was created.
+async function findNewChildTicketId(parentTicketId: number, title: string, knownChildIds: number[]): Promise<number | null> {
+  const wanted = title.trim().toLowerCase()
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const resp = await net.fetch(`${WRAPPER_BASE}/Tickets/Details/${parentTicketId}`, {
+        session: wrapperSession(),
+        headers: { 'User-Agent': CLIENTS_USER_AGENT }
+      } as any)
+      if (resp.ok) {
+        const children = (parseClientsTicketDetails(await resp.text()).subTickets ?? [])
+          .filter(child => child.id > 0 && !knownChildIds.includes(child.id))
+        const byTitle = children.find(child => child.title.trim().toLowerCase() === wanted)
+        if (byTitle) return byTitle.id
+        const newest = children.sort((a, b) => b.id - a.id)[0]
+        if (newest) return newest.id
+      }
+    } catch (err) {
+      logger.warn('Не удалось перечитать подзадачи родительской заявки:', err)
+    }
+    if (attempt < 2) await wait(1000)
+  }
+  return null
+}
+
+// Last resort when the wrapper tells us nothing: find the ticket we just created
+// in Zammad by title. The customer ticket list is served from the database, so it
+// is checked first — the search index can lag a few seconds behind a new ticket.
+async function findRecentlyCreatedTicketId(opts: {
+  title: string
+  customerId?: number | null
+  since: number
+  excludeIds: number[]
+}): Promise<number | null> {
+  const wanted = opts.title.trim().toLowerCase()
+  if (!wanted) return null
+
+  let token = ''
+  try {
+    token = getToken()
+  } catch {
+    return null
+  }
+  const h = zHeaders(token)
+  const customerId = opts.customerId ? parseTicketIdValue(opts.customerId) : null
+
+  const isCandidate = (raw: any): boolean => {
+    const id = parseTicketIdValue(raw?.id)
+    if (!id || opts.excludeIds.includes(id)) return false
+    if (String(raw.title ?? '').trim().toLowerCase() !== wanted) return false
+    const createdAt = Date.parse(String(raw.created_at ?? ''))
+    return !Number.isFinite(createdAt) || createdAt >= opts.since - 5 * 60_000
+  }
+  // The clients id of a customer is not guaranteed to be the Zammad user id, so a
+  // customer match only breaks ties instead of filtering candidates out.
+  const pickBest = (candidates: any[]): number | null => {
+    if (candidates.length === 0) return null
+    const sameCustomer = customerId
+      ? candidates.find(raw => parseTicketIdValue(raw.customer_id) === customerId)
+      : null
+    return parseTicketIdValue((sameCustomer ?? candidates[0]).id)
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (customerId) {
+      try {
+        const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/ticket_customer?customer_id=${customerId}`, { headers: h })
+        if (resp.ok) {
+          const payload = await resp.json()
+          const ids = [
+            ...(Array.isArray(payload?.ticket_ids_open) ? payload.ticket_ids_open : []),
+            ...(Array.isArray(payload?.ticket_ids_closed) ? payload.ticket_ids_closed : [])
+          ]
+            .map(parseTicketIdValue)
+            .filter((id): id is number => !!id && !opts.excludeIds.includes(id))
+            .sort((a, b) => b - a)
+            .slice(0, 15)
+          for (const id of ids) {
+            const ticketResp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${id}`, { headers: h })
+            if (!ticketResp.ok) continue
+            const raw = await ticketResp.json()
+            if (isCandidate(raw)) return id
+          }
+        }
+      } catch (err) {
+        logger.warn('Не удалось получить список заявок клиента из Zammad:', err)
+      }
+    }
+
+    for (const query of [`title:${zammadSearchValue(opts.title.trim())}`, zammadSearchValue(opts.title.trim())]) {
+      try {
+        const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
+        url.searchParams.set('query', query)
+        url.searchParams.set('per_page', '25')
+        url.searchParams.set('sort_by', 'created_at')
+        url.searchParams.set('order_by', 'desc')
+        url.searchParams.set('expand', 'true')
+        const resp = await zammadFetch(url.toString(), { headers: h })
+        if (!resp.ok) continue
+        const data = await resp.json()
+        const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.tickets) ? data.tickets : []
+        const found = pickBest(list.filter(isCandidate))
+        if (found) return found
+      } catch (err) {
+        logger.warn('Поиск созданной заявки в Zammad не удался:', err)
+      }
+    }
+
+    if (attempt < 2) await wait(1500)
+  }
+  return null
+}
+
+// clients numbers its tickets on its own, so an id read off the wrapper can be
+// either the Zammad ticket id or the internal clients number. Everything the app
+// does afterwards (opening a tab, posting the closing article) speaks Zammad ids.
+async function toZammadTicketId(rawId: number, title: string, since: number): Promise<number | null> {
+  const wanted = title.trim().toLowerCase()
+  let token = ''
+  try {
+    token = getToken()
+  } catch {
+    return rawId
+  }
+
+  try {
+    const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${rawId}`, { headers: zHeaders(token) })
+    if (resp.ok) {
+      const raw = await resp.json()
+      const sameTitle = String(raw?.title ?? '').trim().toLowerCase() === wanted
+      const createdAt = Date.parse(String(raw?.created_at ?? ''))
+      const fresh = Number.isFinite(createdAt) && createdAt >= since - 5 * 60_000
+      if (sameTitle || fresh) return rawId
+      logger.info(`Заявка ${rawId} в Zammad не совпадает с созданной — трактую номер как внутренний номер clients`)
+    }
+  } catch (err) {
+    logger.warn('Не удалось проверить id созданной заявки в Zammad:', err)
+  }
+
+  // The freshly created ticket cannot be in a cached index yet.
+  clientsIndexCache = null
+  try {
+    const mapped = await resolveClientsNumberToZammadId(String(rawId))
+    if (mapped) {
+      logger.info(`Внутренний номер clients ${rawId} сопоставлен с заявкой Zammad ${mapped}`)
+      return mapped
+    }
+  } catch (err) {
+    logger.warn('Не удалось сопоставить номер clients с заявкой Zammad:', err)
+  }
+
+  return null
+}
+
+async function resolveCreatedTicketId(opts: {
+  response: ClientsFormResponse
+  title: string
+  customerId?: number | null
+  parentTicketId?: number
+  knownChildIds?: number[]
+  since: number
+  excludeIds: number[]
+}): Promise<number | null> {
+  const candidates: number[] = []
+  const addCandidate = (id: number | null) => {
+    if (id && !candidates.includes(id)) candidates.push(id)
+  }
+
+  addCandidate(ticketIdFromUrl(opts.response.location))
+
+  const body = opts.response.body ?? ''
+  const trimmed = body.trim()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      addCandidate(ticketIdFromJsonPayload(JSON.parse(trimmed)))
+    } catch {
+      // not JSON after all — fall through to the HTML paths
+    }
+  }
+
+  if (!isClientsCreateForm(body)) {
+    addCandidate(ticketIdFromHtml(body, opts.excludeIds))
+  }
+
+  if (opts.parentTicketId) {
+    addCandidate(await findNewChildTicketId(opts.parentTicketId, opts.title, opts.knownChildIds ?? []))
+  }
+
+  for (const candidate of candidates) {
+    const zammadId = await toZammadTicketId(candidate, opts.title, opts.since)
+    if (zammadId) return zammadId
+  }
+
+  return findRecentlyCreatedTicketId({
+    title: opts.title,
+    customerId: opts.customerId,
+    since: opts.since,
+    excludeIds: opts.excludeIds
+  })
+}
+
+// Turns a create response that carries no ticket id into an error, but only after
+// making sure the ticket really was not created — an error on a saved ticket is
+// what makes agents create the same ticket twice.
+function createFailureError(response: ClientsFormResponse, fallback: string): Error {
+  const validation = clientsFormErrorMessage(response.body)
+  if (validation) return new Error(`Ошибка валидации формы: ${validation}`)
+  if (isClientsLoginPage(response.body)) {
+    return new Error('Сессия clients истекла. Выполните вход в приложение заново и повторите.')
+  }
+  if (response.status >= 500) {
+    return new Error(`Сервер clients ответил ошибкой ${response.status}. Проверьте, не создалась ли заявка, и повторите.`)
+  }
+  return new Error(fallback)
+}
+
 async function createSubTicket(params: {
   parentTicketId: number
   title: string
@@ -3842,70 +4393,62 @@ async function createSubTicket(params: {
   stateId: number
   timeUnit: number
 }): Promise<{ ok: boolean; newTicketId?: number }> {
-  const ses = wrapperSession()
+  await ensureClientsSession()
 
-  const createPageUrl = `https://clients.denvic.ru/Tickets/Create?baseTicketId=${params.parentTicketId}`
-  const pageResp = await net.fetch(createPageUrl, { session: ses } as any)
-  if (!pageResp.ok) {
-    throw new Error(`Не удалось загрузить страницу создания подзадачи: ${pageResp.status}`)
-  }
-  const html = await pageResp.text()
-  const tokenMatch = html.match(/name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"/) || html.match(/value="([^"]+)"[^>]*name="__RequestVerificationToken"/)
-  if (!tokenMatch) {
-    throw new Error('Не удалось извлечь CSRF токен для создания подзадачи')
-  }
-  const csrfToken = tokenMatch[1]
+  const createPageUrl = `${WRAPPER_BASE}/Tickets/Create?baseTicketId=${params.parentTicketId}`
 
   const parentDetails = await fetchTicketDetails(params.parentTicketId)
   const clientId = parentDetails.customer?.id || 0
+  const knownChildIds = ((parentDetails.ticket as any)?.subTickets ?? [])
+    .map((child: any) => parseTicketIdValue(child?.id))
+    .filter((id: number | null): id is number => !!id)
 
-  const bodyParams = new URLSearchParams()
-  bodyParams.append('__RequestVerificationToken', csrfToken)
-  bodyParams.append('newCaption', params.title)
-  bodyParams.append('selectedClientId', String(clientId))
-  bodyParams.append('selectedTicketType', params.type || 'Incident')
-  bodyParams.append('selectedGroupId', String(params.groupId))
-  bodyParams.append('selectedUserId', String(params.ownerId || 1))
-  bodyParams.append('selectedTcketPriorityId', String(params.priorityId || 2))
-  bodyParams.append('selectedTcketStateId', String(params.stateId || 2))
-  bodyParams.append('TimeUnit', String(params.timeUnit || 0))
-  bodyParams.append('newArticleText', params.body)
-  bodyParams.append('baseTicketId', String(params.parentTicketId))
-  bodyParams.append('CurrentCall', 'False')
-
-  const postResp = await net.fetch('https://clients.denvic.ru/Tickets/Create', {
-    method: 'POST',
-    session: ses,
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Referer': createPageUrl
-    },
-    body: bodyParams.toString(),
-    redirect: 'manual'
-  } as any)
-
-  if (postResp.status === 302 || postResp.status === 301) {
-    const loc = postResp.headers.get('location')
-    if (loc) {
-      const match = loc.match(/\/Tickets\/Details\/(\d+)/)
-      if (match) {
-        const newTicketId = parseInt(match[1], 10)
-        clearTicketCaches(params.parentTicketId)
-        clearTicketCaches()
-        return { ok: true, newTicketId }
-      }
+  const since = Date.now()
+  const postResp = await submitClientsCreateForm({
+    createPageUrl,
+    what: 'создания подзадачи',
+    buildBody: (_html, csrfToken) => {
+      const bodyParams = new URLSearchParams()
+      bodyParams.append('__RequestVerificationToken', csrfToken)
+      bodyParams.append('newCaption', params.title)
+      bodyParams.append('selectedClientId', String(clientId))
+      bodyParams.append('selectedTicketType', params.type || 'Incident')
+      bodyParams.append('selectedGroupId', String(params.groupId))
+      bodyParams.append('selectedUserId', String(params.ownerId || 1))
+      bodyParams.append('selectedTcketPriorityId', String(params.priorityId || 2))
+      bodyParams.append('selectedTcketStateId', String(params.stateId || 2))
+      bodyParams.append('TimeUnit', String(params.timeUnit || 0))
+      bodyParams.append('newArticleText', params.body)
+      bodyParams.append('baseTicketId', String(params.parentTicketId))
+      bodyParams.append('CurrentCall', 'False')
+      return bodyParams
     }
+  })
+
+  const validation = clientsFormErrorMessage(postResp.body)
+  if (validation && isClientsCreateForm(postResp.body)) {
+    throw new Error(`Ошибка валидации формы: ${validation}`)
   }
 
-  if (postResp.ok) {
-    const text = await postResp.text()
-    const validationMatch = text.match(/class="text-danger"[^>]*>([\s\S]*?)<\/span>/)
-    if (validationMatch) {
-      throw new Error(`Ошибка валидации формы: ${validationMatch[1].replace(/<[^>]*>/g, '').trim()}`)
-    }
+  const newTicketId = await resolveCreatedTicketId({
+    response: postResp,
+    title: params.title,
+    customerId: clientId,
+    parentTicketId: params.parentTicketId,
+    knownChildIds,
+    since,
+    excludeIds: [params.parentTicketId, ...knownChildIds]
+  })
+
+  rememberSelfCreatedTicket(newTicketId)
+  clearTicketCaches(params.parentTicketId)
+  clearTicketCaches()
+
+  if (!newTicketId) {
+    throw createFailureError(postResp, `Не удалось создать подзадачу (ответ сервера ${postResp.status}). Обновите заявку — возможно, подзадача всё же создана.`)
   }
 
-  throw new Error(`Ошибка при создании подзадачи. Статус ответа: ${postResp.status}`)
+  return { ok: true, newTicketId }
 }
 
 async function bindCallToTicket(params: {
@@ -3956,89 +4499,88 @@ async function createTicketFromCall(params: {
   timeUnit?: string
 }): Promise<{ ok: boolean; newTicketId?: number }> {
   await ensureClientsSession()
-  const ses = wrapperSession()
 
   const clientId = params.clientId || 0
-  const createPageUrl = `https://clients.denvic.ru/Tickets/Create?selectedPhoneNuber=${encodeURIComponent(params.phone)}&linkedId=${encodeURIComponent(params.callId)}&selectedPhoneDate=${encodeURIComponent(params.date)}&selectedPhoneDuration=${encodeURIComponent(params.duration)}` + (clientId ? `&id=${clientId}` : '')
+  // A quick ticket carries no call. Asking clients for the call variant of the
+  // form anyway makes it prefill the article with an empty "Входящий звонок с
+  // номера: …" block, which then gets saved into a ticket that has nothing to do
+  // with a call.
+  const isCallTicket = !!(String(params.callId || '').trim() || String(params.phone || '').trim())
+  const createPageUrl = isCallTicket
+    ? `${WRAPPER_BASE}/Tickets/Create?selectedPhoneNuber=${encodeURIComponent(params.phone)}&linkedId=${encodeURIComponent(params.callId)}&selectedPhoneDate=${encodeURIComponent(params.date)}&selectedPhoneDuration=${encodeURIComponent(params.duration)}` + (clientId ? `&id=${clientId}` : '')
+    : `${WRAPPER_BASE}/Tickets/Create` + (clientId ? `?id=${clientId}` : '')
 
-  const pageResp = await net.fetch(createPageUrl, { session: ses } as any)
-  if (!pageResp.ok) {
-    throw new Error(`Не удалось загрузить страницу создания заявки: ${pageResp.status}`)
-  }
-  const html = await pageResp.text()
-  const tokenMatch = html.match(/name="__RequestVerificationToken"\s+type="hidden"\s+value="([^"]+)"/) || html.match(/value="([^"]+)"[^>]*name="__RequestVerificationToken"/)
-  if (!tokenMatch) {
-    throw new Error('Не удалось извлечь CSRF токен для создания заявки')
-  }
-  const csrfToken = tokenMatch[1]
+  const since = Date.now()
+  const postResp = await submitClientsCreateForm({
+    createPageUrl,
+    what: 'создания заявки',
+    buildBody: (html, csrfToken) => {
+      const groupId = params.groupId || findSelectedOption(html, 'selectedGroupId') || '1'
+      const userId = params.userId || findSelectedOption(html, 'selectedUserId') || '1'
+      const priorityId = params.priorityId || findSelectedOption(html, 'selectedTcketPriorityId') || '2'
+      const stateId = params.stateId || findSelectedOption(html, 'selectedTcketStateId') || '2'
+      const ticketType = params.ticketType || findSelectedOption(html, 'selectedTypeId') || 'Incident'
 
-  const groupId = params.groupId || findSelectedOption(html, 'selectedGroupId') || '1'
-  const userId = params.userId || findSelectedOption(html, 'selectedUserId') || '1'
-  const priorityId = params.priorityId || findSelectedOption(html, 'selectedTcketPriorityId') || '2'
-  const stateId = params.stateId || findSelectedOption(html, 'selectedTcketStateId') || '2'
-  const ticketType = params.ticketType || findSelectedOption(html, 'selectedTypeId') || 'Incident'
+      // The prefilled block describes the call the ticket is being created from,
+      // so it only belongs on a call ticket.
+      const defaultArticleMatch = isCallTicket
+        ? html.match(/<input[^>]*id="newArticleText"[^>]*value="([^"]*)"/i)
+        : null
+      const defaultArticleText = defaultArticleMatch ? decodeHtml(defaultArticleMatch[1]) : ''
+      const description = String(params.body || '').trim()
+      const finalArticleBody = defaultArticleText + (description ? `<div>${description.replace(/\n/g, '<br>')}</div>` : '')
+      logger.info('Текст заявки для clients:', {
+        isCallTicket,
+        prefilledChars: defaultArticleText.length,
+        descriptionChars: description.length
+      })
 
-  const defaultArticleMatch = html.match(/<input[^>]*id="newArticleText"[^>]*value="([^"]*)"/i)
-  let defaultArticleText = ''
-  if (defaultArticleMatch) {
-    defaultArticleText = decodeHtml(defaultArticleMatch[1])
-  }
-
-  const finalArticleBody = defaultArticleText + `<div>${params.body.replace(/\n/g, '<br>')}</div>`
-
-  const bodyParams = new URLSearchParams()
-  bodyParams.append('__RequestVerificationToken', csrfToken)
-  bodyParams.append('newCaption', params.title)
-  bodyParams.append('selectedClientId', String(clientId))
-  bodyParams.append('selectedTicketType', ticketType)
-  bodyParams.append('selectedGroupId', groupId)
-  bodyParams.append('selectedUserId', userId)
-  bodyParams.append('selectedTcketPriorityId', priorityId)
-  bodyParams.append('selectedTcketStateId', stateId)
-  bodyParams.append('TimeUnit', params.timeUnit ?? '10')
-  bodyParams.append('newArticleText', finalArticleBody)
-  bodyParams.append('linkedId', params.callId)
-  bodyParams.append('phoneNuber', params.phone)
-  bodyParams.append('baseTicketId', '')
-  bodyParams.append('CurrentCall', 'False')
-
-  if (params.pendingTime) {
-    bodyParams.append('pendingTime', params.pendingTime)
-  }
-
-  const postResp = await net.fetch('https://clients.denvic.ru/Tickets/Create', {
-    method: 'POST',
-    session: ses,
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Referer': createPageUrl
-    },
-    body: bodyParams.toString(),
-    redirect: 'manual'
-  } as any)
-
-  if (postResp.status === 302 || postResp.status === 301) {
-    const loc = postResp.headers.get('location')
-    if (loc) {
-      const match = loc.match(/\/Tickets\/Details\/(\d+)/)
-      if (match) {
-        const newTicketId = parseInt(match[1], 10)
-        clearTicketCaches()
-        return { ok: true, newTicketId }
+      const bodyParams = new URLSearchParams()
+      bodyParams.append('__RequestVerificationToken', csrfToken)
+      bodyParams.append('newCaption', params.title)
+      bodyParams.append('selectedClientId', String(clientId))
+      bodyParams.append('selectedTicketType', ticketType)
+      bodyParams.append('selectedGroupId', groupId)
+      bodyParams.append('selectedUserId', userId)
+      bodyParams.append('selectedTcketPriorityId', priorityId)
+      bodyParams.append('selectedTcketStateId', stateId)
+      bodyParams.append('TimeUnit', params.timeUnit ?? '10')
+      bodyParams.append('newArticleText', finalArticleBody)
+      if (isCallTicket) {
+        bodyParams.append('linkedId', params.callId)
+        bodyParams.append('phoneNuber', params.phone)
       }
+      bodyParams.append('baseTicketId', '')
+      bodyParams.append('CurrentCall', 'False')
+
+      if (params.pendingTime) {
+        bodyParams.append('pendingTime', params.pendingTime)
+      }
+      return bodyParams
     }
+  })
+
+  const validation = clientsFormErrorMessage(postResp.body)
+  if (validation && isClientsCreateForm(postResp.body)) {
+    throw new Error(`Ошибка валидации формы: ${validation}`)
   }
 
-  if (postResp.ok) {
-    const text = await postResp.text()
-    const validationMatch = text.match(/class="text-danger"[^>]*>([\s\S]*?)<\/span>/)
-    if (validationMatch) {
-      throw new Error(`Ошибка валидации формы: ${validationMatch[1].replace(/<[^>]*>/g, '').trim()}`)
-    }
-    return { ok: true }
+  const newTicketId = await resolveCreatedTicketId({
+    response: postResp,
+    title: params.title,
+    customerId: clientId,
+    since,
+    excludeIds: []
+  })
+
+  rememberSelfCreatedTicket(newTicketId)
+  clearTicketCaches()
+
+  if (!newTicketId) {
+    throw createFailureError(postResp, `Не удалось определить номер созданной заявки (ответ сервера ${postResp.status}). Проверьте список заявок — возможно, она уже создана.`)
   }
 
-  throw new Error(`Не удалось создать заявку. Статус ответа: ${postResp.status}`)
+  return { ok: true, newTicketId }
 }
 
 function findSelectedOption(html: string, selectId: string): string {
@@ -4149,6 +4691,38 @@ function getAvailableSounds() {
 let pollerInterval: any = null
 const checkedTickets = new Map<number, { updatedAt: string; articleCount: number; stateId: number; ownerId: number | null; groupId: number }>()
 
+// Tickets created from this app. clients saves them under its own service user,
+// so created_by_id never matches the agent and the poller would announce a
+// ticket the agent just filled in by hand. Consumed once, when the poller first
+// sees the ticket — later changes to it are notified as usual.
+const selfCreatedTicketIds = new Set<number>()
+
+function rememberSelfCreatedTicket(ticketId: number | null | undefined): void {
+  if (ticketId) selfCreatedTicketIds.add(ticketId)
+}
+
+// Folds a change the agent just made into the poller's baseline. Zammad records
+// these edits under the clients service user, so `updated_by_id` never matches
+// the agent and the poller would otherwise announce their own status change or
+// comment back to them. Only this one change is absorbed — whatever happens to
+// the ticket afterwards is still notified.
+async function markTicketSelfUpdated(ticketId: number): Promise<void> {
+  try {
+    const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${ticketId}`, { headers: zHeaders(getToken()) })
+    if (!resp.ok) return
+    const t = await resp.json()
+    checkedTickets.set(ticketId, {
+      updatedAt: t.updated_at,
+      articleCount: Array.isArray(t.article_ids) ? t.article_ids.length : 0,
+      stateId: parseInt(String(t.state_id), 10),
+      ownerId: parseInt(String(t.owner_id), 10) || null,
+      groupId: parseInt(String(t.group_id), 10)
+    })
+  } catch (err) {
+    logger.warn(`Не удалось обновить базовое состояние заявки ${ticketId} после своего изменения:`, err)
+  }
+}
+
 function formatZammadSearchDate(date: Date): string {
   return date.toISOString().replace(/\.\d+Z$/, 'Z')
 }
@@ -4212,10 +4786,16 @@ function startNotificationPoller() {
             groupId
           })
 
+          const createdHere = selfCreatedTicketIds.delete(ticketId)
+
           if (!isFirstRun) {
             clearTicketCaches()
             notifyFrontend('tickets:list-updated')
-            if (isRecent) {
+            if (createdHere) {
+              // The agent created this ticket a moment ago — the list refresh
+              // above is all that is needed, announcing it would be noise.
+              logger.info(`Заявка ${ticketId} создана из приложения — уведомление о её появлении пропущено`)
+            } else if (isRecent) {
               await checkAndNotify(t, null, 'create')
             } else {
               let changeDetails = ''

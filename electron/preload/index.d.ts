@@ -27,6 +27,9 @@ declare global {
       app: {
         getExtensionInfo: () => Promise<{ path: string; packaged: boolean }>
         getVersion: () => Promise<string>
+        showContextMenu: (
+          items: { id?: string; label?: string; type?: 'separator'; enabled?: boolean }[]
+        ) => Promise<string | null>
       }
       ai: {
         complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter' }) => Promise<string>
@@ -47,6 +50,8 @@ declare global {
           sortAsc: boolean
           searchQuery?: string
           myTicketsStateId?: number
+          createdFrom?: string
+          createdTo?: string
         }) => Promise<any>
         getMyTicketsCounts: () => Promise<any>
         getFilters: () => Promise<any>

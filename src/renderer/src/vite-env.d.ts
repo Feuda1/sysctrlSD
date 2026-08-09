@@ -8,6 +8,7 @@ declare module '*.png' {
 interface ImportMetaEnv {
   readonly VITE_GROQ_KEY?: string
   readonly VITE_OPENROUTER_KEY?: string
+  readonly VITE_DEEPSEEK_KEY?: string
 }
 
 interface ImportMeta {

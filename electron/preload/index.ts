@@ -154,7 +154,10 @@ const api = {
   app: {
     getExtensionInfo: (): Promise<{ path: string; packaged: boolean }> =>
       ipcRenderer.invoke('app:getExtensionInfo'),
-    getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
+    getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+    showContextMenu: (
+      items: { id?: string; label?: string; type?: 'separator'; enabled?: boolean }[]
+    ): Promise<string | null> => ipcRenderer.invoke('app:showContextMenu', items)
   },
   ai: {
     complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter' }): Promise<string> =>
@@ -181,6 +184,8 @@ const api = {
       sortAsc: boolean
       searchQuery?: string
       myTicketsStateId?: number
+      createdFrom?: string
+      createdTo?: string
     }) => ipcRenderer.invoke('tickets:list', params),
     getMyTicketsCounts: (): Promise<any> =>
       ipcRenderer.invoke('tickets:getMyTicketsCounts'),
