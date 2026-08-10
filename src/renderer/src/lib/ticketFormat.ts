@@ -85,6 +85,27 @@ export function cleanBody(html: string): string {
   return cleaned
 }
 
+/** Plain text of an article body, for comparing a sent message with the one
+ * that came back from the server. */
+export function htmlToPlainText(html: string): string {
+  return String(html || '')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(parseInt(code, 10)))
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim()
+}
+
 export function isAutoReplyArticle(body: string, creatorName: string): boolean {
   const text = body.toLowerCase()
   const cName = creatorName.toLowerCase()
