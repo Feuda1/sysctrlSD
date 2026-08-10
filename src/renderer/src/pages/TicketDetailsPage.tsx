@@ -1,4 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
+import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
 import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
@@ -191,7 +192,7 @@ export default function TicketDetailsPage() {
   const closeTab = useTabsStore(s => s.closeTab)
   const activeTabId = useTabsStore(s => s.activeTabId)
 
-  const { data: detailsData, isLoading: detailsLoading, error: detailsError } = useQuery<{ ticket: Ticket; customer: TicketCustomer | null; organization: OrganizationDetails | null }>({
+  const { data: detailsData, isLoading: detailsLoading, error: detailsError, refetch: refetchDetails, isFetching: detailsFetching } = useQuery<{ ticket: Ticket; customer: TicketCustomer | null; organization: OrganizationDetails | null }>({
     queryKey: ['ticket-details', idNum],
     queryFn: () => window.api.tickets.getDetails(idNum),
     enabled: idNum > 0,
@@ -689,8 +690,14 @@ export default function TicketDetailsPage() {
 
   if (detailsError || !detailsData) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3">
-        <p className="text-sm text-destructive font-medium">Не удалось загрузить данные заявки</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
+        <ErrorNotice
+          className="max-w-lg"
+          error={detailsError}
+          fallback="Не удалось загрузить данные заявки"
+          onRetry={() => void refetchDetails()}
+          isRetrying={detailsFetching}
+        />
         <Button variant="outline" size="sm" onClick={() => navigate(-1)}>Назад</Button>
       </div>
     )

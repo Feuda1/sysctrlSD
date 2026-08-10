@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ErrorNotice } from '@/components/ui/error-notice'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -1322,10 +1323,13 @@ export default function CallsPage() {
       </div>
 
       {isError && (
-        <div className="mb-3 flex shrink-0 items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>{error instanceof Error ? error.message : 'Ошибка загрузки звонков'}</span>
-        </div>
+        <ErrorNotice
+          className="mb-3"
+          error={error}
+          fallback="Ошибка загрузки звонков"
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
       )}
 
       <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-card/40">

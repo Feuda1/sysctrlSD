@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { OfflineBanner } from '@/components/layout/OfflineBanner'
 import { useAuthStore } from '@/store/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TabBar } from '@/components/layout/TabBar'
@@ -110,6 +111,7 @@ export default function DashboardPage() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TabBar />
+        <OfflineBanner />
         <TabHost />
       </div>
       <QuickTicketModal />
