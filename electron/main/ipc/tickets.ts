@@ -48,6 +48,7 @@ export interface Ticket {
   tags?: TicketTagItem[]
   createdAt: string
   updatedAt: string
+  closedAt?: string | null
   pendingTime?: string | null
   score?: number | null
   accountedTime?: number | null
@@ -66,9 +67,11 @@ export interface TicketListParams {
   sortAsc: boolean
   searchQuery?: string
   myTicketsStateId?: number
-  /** Inclusive period the ticket was created in, as YYYY-MM-DD. */
+  /** Inclusive period, as YYYY-MM-DD, applied to `dateField`. */
   createdFrom?: string
   createdTo?: string
+  /** Which date the period filters on. Defaults to the creation date. */
+  dateField?: 'created' | 'closed'
 }
 
 export interface TicketListResponse {
@@ -251,6 +254,11 @@ interface ClientsTicketDetailsMeta {
   }
   tags?: TicketTagItem[]
   subTickets?: SubTicket[]
+  /** Options of the "БАЛЛЫ ЗА ЗАЯВКУ" select, exactly as clients defines them. */
+  scoreOptions?: { value: string; label: string }[]
+  scoreValue?: string | null
+  /** clients renders the select disabled for agents without the right. */
+  canEditScore?: boolean
 }
 
 const DEFAULT_FILTERS: TicketFilter[] = [
@@ -733,7 +741,7 @@ function fetchTicketHtml(ticketId: number): Promise<string> {
           throw new Error(`Ошибка загрузки деталей заявки: ${detailResp.status}`)
         }
         const html = await detailResp.text()
-        ticketHtmlCache.set(ticketId, { html, timestamp: Date.now() })
+        ticketHtmlCache.set(ticketId, { html, timestamp: Date.now() })
         return html
       } finally {
         ticketHtmlPromises.delete(ticketId)
@@ -902,6 +910,41 @@ function extractSelectedOptions(html: string, selectId: string): string[] {
     .filter(value => value && value !== '-')
 }
 
+/**
+ * Reads the "БАЛЛЫ ЗА ЗАЯВКУ" select off a clients ticket page. The right to
+ * award points lives in clients, and it shows in the markup: an agent who may
+ * set them gets a normal select (id="ticket_Score"), everyone else gets the same
+ * select rendered `disabled`.
+ */
+function parseClientsScoreControl(html: string): {
+  options: { value: string; label: string }[]
+  value: string | null
+  canEdit: boolean
+} {
+  const empty = { options: [] as { value: string; label: string }[], value: null, canEdit: false }
+  if (!html) return empty
+
+  const labelIndex = html.search(/>\s*БАЛЛЫ ЗА ЗАЯВКУ\s*</i)
+  if (labelIndex < 0) return empty
+
+  const selectMatch = html.slice(labelIndex).match(/<select\b([^>]*)>([\s\S]*?)<\/select>/i)
+  if (!selectMatch) return empty
+
+  const attrs = selectMatch[1]
+  const options: { value: string; label: string }[] = []
+  let value: string | null = null
+
+  for (const option of selectMatch[2].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)) {
+    const optionValue = option[1].match(/value\s*=\s*"([^"]*)"/i)?.[1]
+    if (optionValue === undefined) continue
+    const label = stripHtml(option[2]).trim() || optionValue
+    options.push({ value: optionValue, label })
+    if (/\bselected\b/i.test(option[1])) value = optionValue
+  }
+
+  return { options, value, canEdit: !/\bdisabled\b/i.test(attrs) }
+}
+
 function parseClientsTicketDetails(html: string): ClientsTicketDetailsMeta {
   const decodedHtml = decodeHtml(html)
   const headerMatch = decodedHtml.match(/<div class="card"\s+id="tecketHeader"[\s\S]*?(?=<div class="card">\s*<div class="card-body">\s*<ul class="nav nav-tabs"|$)/i)
@@ -957,10 +1000,15 @@ function parseClientsTicketDetails(html: string): ClientsTicketDetailsMeta {
     }
   }
 
+  const score = parseClientsScoreControl(decodedHtml)
+
   const nameParts = (customerName ?? '').split(/\s+/).filter(Boolean)
   return {
     title,
     channel,
+    scoreOptions: score.options.length > 0 ? score.options : undefined,
+    scoreValue: score.value,
+    canEditScore: score.canEdit,
     customer: customerName ? {
       id: customerLink ? parseInt(customerLink[1], 10) : undefined,
       firstname: nameParts[0] ?? customerName,
@@ -1658,6 +1706,7 @@ function normalizeZammadTicket(raw: any): Ticket {
     tags,
     createdAt: String(raw.created_at ?? ''),
     updatedAt: String(raw.updated_at ?? raw.created_at ?? ''),
+    closedAt: raw.close_at ? String(raw.close_at) : null,
     pendingTime,
     score,
     accountedTime: Number.isFinite(accountedTime) ? accountedTime : null,
@@ -2017,21 +2066,27 @@ function dayRangeBounds(from?: string, to?: string): { start: number | null; end
   }
 }
 
-function createdRangeQuery(from?: string, to?: string): string {
+function zammadDateField(dateField?: 'created' | 'closed'): string {
+  return dateField === 'closed' ? 'close_at' : 'created_at'
+}
+
+function dateRangeQuery(from: string | undefined, to: string | undefined, dateField?: 'created' | 'closed'): string {
   const { start, end } = dayRangeBounds(from, to)
   if (start === null && end === null) return ''
   const lower = start === null ? '*' : new Date(start).toISOString()
   const upper = end === null ? '*' : new Date(end).toISOString()
-  return `created_at:[${lower} TO ${upper}]`
+  return `${zammadDateField(dateField)}:[${lower} TO ${upper}]`
 }
 
-function isInCreatedRange(raw: any, from?: string, to?: string): boolean {
+function isInDateRange(raw: any, from: string | undefined, to: string | undefined, dateField?: 'created' | 'closed'): boolean {
   const { start, end } = dayRangeBounds(from, to)
   if (start === null && end === null) return true
-  const createdAt = Date.parse(String(raw?.created_at ?? ''))
-  if (!Number.isFinite(createdAt)) return false
-  if (start !== null && createdAt < start) return false
-  if (end !== null && createdAt > end) return false
+  const value = dateField === 'closed' ? raw?.close_at : raw?.created_at
+  const timestamp = Date.parse(String(value ?? ''))
+  // A ticket that is not closed yet simply has no date to match against.
+  if (!Number.isFinite(timestamp)) return false
+  if (start !== null && timestamp < start) return false
+  if (end !== null && timestamp > end) return false
   return true
 }
 
@@ -2076,9 +2131,9 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
       }
     }
 
-    const createdRange = createdRangeQuery(params.createdFrom, params.createdTo)
-    if (createdRange) {
-      query = query.trim() ? `(${query}) AND ${createdRange}` : createdRange
+    const periodQuery = dateRangeQuery(params.createdFrom, params.createdTo, params.dateField)
+    if (periodQuery) {
+      query = query.trim() ? `(${query}) AND ${periodQuery}` : periodQuery
     }
 
     const SORT_FIELD_MAP: Record<string, string> = {
@@ -2125,7 +2180,7 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
   // The cached "my tickets" path never went through the search query, and the
   // search index can be a moment behind, so the period is enforced here too.
   if (params.createdFrom || params.createdTo) {
-    filteredRaw = filteredRaw.filter(t => isInCreatedRange(t, params.createdFrom, params.createdTo))
+    filteredRaw = filteredRaw.filter(t => isInDateRange(t, params.createdFrom, params.createdTo, params.dateField))
   }
 
   const ownerIds = filteredRaw.map(t => parseInt(String(t.owner_id ?? '0'), 10)).filter(id => id > 0)
@@ -3018,6 +3073,11 @@ async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ti
   if (clientsMeta.subTickets) {
     (normalized as any).subTickets = clientsMeta.subTickets
   }
+  // Points: the raw clients value ("01.0") plus who may change it, so the sidebar
+  // can offer the same choice clients offers — and only to the same people.
+  ;(normalized as any).scoreOptions = clientsMeta.scoreOptions ?? []
+  ;(normalized as any).scoreValue = clientsMeta.scoreValue ?? null
+  ;(normalized as any).canEditScore = clientsMeta.canEditScore === true
   if (!normalized.clientNumber) {
     try {
       const idx = await fetchClientsTicketIndex()
@@ -3511,6 +3571,38 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
   return { ok: true }
 }
 
+// The right to award points is a clients rule, and Zammad would happily accept
+// the change from anyone — so it is re-checked against the live clients page
+// right before writing, not taken on the renderer's word.
+async function setTicketScore(ticketId: number, score: string): Promise<{ ok: true }> {
+  const html = await fetchTicketHtml(ticketId)
+  const control = parseClientsScoreControl(html)
+  if (!control.canEdit) {
+    throw new Error('У вашей учётной записи нет права выставлять баллы за заявку')
+  }
+  const allowed = control.options.some(option => option.value === score)
+  if (!allowed) {
+    throw new Error('Такого значения баллов нет в списке clients')
+  }
+
+  const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${ticketId}`, {
+    method: 'PUT',
+    headers: zHeaders(getToken()),
+    body: JSON.stringify({ score })
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка выставления баллов:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось выставить баллы'))
+  }
+
+  await markTicketSelfUpdated(ticketId)
+  ticketHtmlCache.delete(ticketId)
+  clearTicketCaches(ticketId)
+  return { ok: true }
+}
+
 async function searchUsers(query: string): Promise<MetadataItem[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
@@ -3739,7 +3831,7 @@ export function setupTicketsIpc(): void {
     if (hasToken) {
       try {
         const token = getToken()
-        await loadMeta(token)
+        await loadMeta(token)
         const myUserId = await getUserId()
         if (myUserId) {
           preloadTicketsCache(myUserId, token)
@@ -3901,6 +3993,10 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:export', async (_event, ticketId: number, options: TicketExportOptions) => {
     return exportTicket(ticketId, options)
+  })
+
+  ipcMain.handle('tickets:setScore', async (_event, ticketId: number, score: string) => {
+    return setTicketScore(ticketId, score)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {

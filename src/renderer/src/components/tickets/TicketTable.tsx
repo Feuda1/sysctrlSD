@@ -27,6 +27,7 @@ const COLUMN_WIDTHS: Record<string, number> = {
   state: 120,
   createdAt: 116,
   updatedAt: 116,
+  closedAt: 116,
   pendingTime: 116,
   score: 64
 }
@@ -306,6 +307,18 @@ const columns: ColumnDef<Ticket>[] = [
     cell: ({ row }) => (
       <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
         {formatTicketDate(row.original.updatedAt || row.original.createdAt)}
+      </span>
+    )
+  },
+  {
+    id: 'closedAt',
+    accessorKey: 'closedAt',
+    header: 'Закрыта',
+    size: 140,
+    enableSorting: true,
+    cell: ({ row }) => (
+      <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
+        {formatTicketDate(row.original.closedAt || '')}
       </span>
     )
   },

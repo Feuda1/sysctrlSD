@@ -186,6 +186,7 @@ const api = {
       myTicketsStateId?: number
       createdFrom?: string
       createdTo?: string
+      dateField?: 'created' | 'closed'
     }) => ipcRenderer.invoke('tickets:list', params),
     getMyTicketsCounts: (): Promise<any> =>
       ipcRenderer.invoke('tickets:getMyTicketsCounts'),
@@ -219,6 +220,8 @@ const api = {
     }) => ipcRenderer.invoke('tickets:addComment', params),
     getAttachment: (ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> =>
       ipcRenderer.invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
+    setScore: (ticketId: number, score: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('tickets:setScore', ticketId, score),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }
