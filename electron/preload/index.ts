@@ -59,6 +59,8 @@ export interface NotificationSettings {
   myTicketsVolume: number
   myTicketsSoundEnabled?: boolean
   myTicketsToastEnabled?: boolean
+  /** Notify when someone awards points on my ticket. */
+  scoreEnabled?: boolean
   rules: FilterNotificationRule[]
   closeToTrayEnabled?: boolean
 }
@@ -75,7 +77,7 @@ export interface NotificationItem {
   toastEnabled: boolean
   isRead: boolean
   createdAt: string
-  type: 'message' | 'status' | 'owner' | 'other'
+  type: 'message' | 'status' | 'owner' | 'score' | 'other'
 }
 
 export type CallSectionKey = 'history' | 'mine' | 'current'
@@ -220,8 +222,8 @@ const api = {
     }) => ipcRenderer.invoke('tickets:addComment', params),
     getAttachment: (ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> =>
       ipcRenderer.invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
-    setScore: (ticketId: number, score: string): Promise<{ ok: true }> =>
-      ipcRenderer.invoke('tickets:setScore', ticketId, score),
+    setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }

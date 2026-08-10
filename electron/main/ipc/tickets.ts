@@ -3597,11 +3597,16 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
 // The right to award points is a clients rule, and Zammad would happily accept
 // the change from anyone — so it is re-checked against the live clients page
 // right before writing, not taken on the renderer's word.
-async function setTicketScore(ticketId: number, score: string): Promise<{ ok: true }> {
+async function setTicketScore(ticketId: number, score: string, ignoreClientsRight = false): Promise<{ ok: true }> {
   const html = await fetchTicketHtml(ticketId)
   const control = parseClientsScoreControl(html)
   if (!control.canEdit) {
-    throw new Error('У вашей учётной записи нет права выставлять баллы за заявку')
+    if (!ignoreClientsRight) {
+      throw new Error('У вашей учётной записи нет права выставлять баллы за заявку')
+    }
+    // Deliberate override from the hidden settings. Zammad still has the last
+    // word, and the change is recorded in the ticket history under this user.
+    logger.warn(`Баллы заявки ${ticketId} меняются в обход запрета clients`)
   }
   const allowed = control.options.some(option => option.value === score)
   if (!allowed) {
@@ -4018,8 +4023,8 @@ export function setupTicketsIpc(): void {
     return exportTicket(ticketId, options)
   })
 
-  ipcMain.handle('tickets:setScore', async (_event, ticketId: number, score: string) => {
-    return setTicketScore(ticketId, score)
+  ipcMain.handle('tickets:setScore', async (_event, ticketId: number, score: string, ignoreClientsRight?: boolean) => {
+    return setTicketScore(ticketId, score, ignoreClientsRight === true)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {
@@ -4799,6 +4804,7 @@ export function readNotificationSettings(): NotificationSettings {
     myTicketsVolume: 1.0,
     myTicketsSoundEnabled: true,
     myTicketsToastEnabled: true,
+    scoreEnabled: true,
     rules: []
   }
   try {
@@ -4870,7 +4876,22 @@ function getAvailableSounds() {
 }
 
 let pollerInterval: any = null
-const checkedTickets = new Map<number, { updatedAt: string; articleCount: number; stateId: number; ownerId: number | null; groupId: number }>()
+const checkedTickets = new Map<number, { updatedAt: string; articleCount: number; stateId: number; ownerId: number | null; groupId: number; score: string }>()
+
+// clients writes points as "01.0"/"00.5"; comparing the raw strings is enough to
+// spot a change, and an empty value means the ticket has never been scored.
+function scoreKey(raw: unknown): string {
+  return raw === null || raw === undefined ? '' : String(raw).trim()
+}
+
+function scoreLabel(raw: unknown): string {
+  const value = scoreKey(raw)
+  if (!value) return 'снят'
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return value
+  if (numeric === 0) return 'без оценки'
+  return numeric.toLocaleString('ru-RU')
+}
 
 // Tickets created from this app. clients saves them under its own service user,
 // so created_by_id never matches the agent and the poller would announce a
@@ -4897,7 +4918,8 @@ async function markTicketSelfUpdated(ticketId: number): Promise<void> {
       articleCount: Array.isArray(t.article_ids) ? t.article_ids.length : 0,
       stateId: parseInt(String(t.state_id), 10),
       ownerId: parseInt(String(t.owner_id), 10) || null,
-      groupId: parseInt(String(t.group_id), 10)
+      groupId: parseInt(String(t.group_id), 10),
+      score: scoreKey(t.score)
     })
   } catch (err) {
     logger.warn(`Не удалось обновить базовое состояние заявки ${ticketId} после своего изменения:`, err)
@@ -4954,7 +4976,8 @@ function startNotificationPoller() {
         const stateId = parseInt(String(t.state_id), 10)
         const ownerId = parseInt(String(t.owner_id), 10) || null
         const groupId = parseInt(String(t.group_id), 10)
-        
+        const score = scoreKey(t.score)
+
         const cached = checkedTickets.get(ticketId)
         
         if (!cached) {
@@ -4964,7 +4987,8 @@ function startNotificationPoller() {
             articleCount: t.article_ids?.length || 0,
             stateId,
             ownerId,
-            groupId
+            groupId,
+            score
           })
 
           const createdHere = selfCreatedTicketIds.delete(ticketId)
@@ -5009,10 +5033,11 @@ function startNotificationPoller() {
               articleCount: newArticleCount,
               stateId,
               ownerId,
-              groupId
+              groupId,
+              score
             })
 
-            let changeType: 'message' | 'status' | 'owner' | 'other' = 'other'
+            let changeType: 'message' | 'status' | 'owner' | 'score' | 'other' = 'other'
             let changeDetails = ''
             
             if (newArticleCount > oldArticleCount) {
@@ -5051,6 +5076,13 @@ function startNotificationPoller() {
               changeDetails = `Группа изменена: ${oldGroupName} → ${newGroupName}`
             }
 
+            // Checked last so that awarding points is reported as such even when
+            // it arrives together with a status change.
+            if (score !== cached.score) {
+              changeType = 'score'
+              changeDetails = `Баллы за заявку: ${scoreLabel(score)}`
+            }
+
             if (changeDetails) {
               clearTicketCaches(ticketId)
               notifyFrontend('tickets:details-updated', ticketId)
@@ -5067,7 +5099,7 @@ function startNotificationPoller() {
   }, 7000)
 }
 
-async function checkAndNotify(t: any, details: string | null, type: 'message' | 'status' | 'owner' | 'create' | 'other') {
+async function checkAndNotify(t: any, details: string | null, type: 'message' | 'status' | 'owner' | 'score' | 'create' | 'other') {
   try {
     const myUserId = await getUserId()
     if (!myUserId) return
@@ -5085,8 +5117,17 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
     let toastEnabled = true
     
     const isMyTicket = normalized.owner?.id === myUserId
-    
-    if (settings.myTicketsEnabled && isMyTicket) {
+
+    // Points are about the ticket's owner, so they are announced on own tickets
+    // only — and by their own switch, independent of the general one.
+    if (type === 'score') {
+      if (!isMyTicket || settings.scoreEnabled === false) return
+      notify = true
+      sound = settings.myTicketsSound || 'synth-chime'
+      volume = settings.myTicketsVolume !== undefined ? settings.myTicketsVolume : 1.0
+      soundEnabled = settings.myTicketsSoundEnabled !== false
+      toastEnabled = settings.myTicketsToastEnabled !== false
+    } else if (settings.myTicketsEnabled && isMyTicket) {
       notify = true
       sound = settings.myTicketsSound || 'synth-chime'
       volume = settings.myTicketsVolume !== undefined ? settings.myTicketsVolume : 1.0
@@ -5113,8 +5154,10 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
     }
 
     if (notify) {
-      const title = `Заявка №${normalized.number}`
-      const body = details || (type === 'create' ? `Создана новая заявка: ${normalized.title}` : `Обновление в заявке: ${normalized.title}`)
+      const title = type === 'score' ? `Баллы · заявка №${normalized.number}` : `Заявка №${normalized.number}`
+      const body = type === 'score'
+        ? `${details ?? 'Баллы за заявку изменены'} — ${normalized.title}`
+        : details || (type === 'create' ? `Создана новая заявка: ${normalized.title}` : `Обновление в заявке: ${normalized.title}`)
       
       const notification: NotificationItem = {
         id: `${Date.now()}-${normalized.id}-${Math.random().toString(36).substr(2, 5)}`,
