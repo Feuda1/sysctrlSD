@@ -135,9 +135,15 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => {
       })
 
       window.api.notifications.onNewNotification((notif) => {
-        set((state) => ({
-          history: [notif, ...state.history].slice(0, 100)
-        }))
+        set((state) => {
+          // Three changes in a row on one ticket used to become three entries.
+          // An unread notification about the same ticket is replaced by the
+          // newer one instead: it says the same thing, only fresher.
+          const withoutSameTicket = state.history.filter(
+            item => !(item.ticketId === notif.ticketId && !item.isRead)
+          )
+          return { history: [notif, ...withoutSameTicket].slice(0, 100) }
+        })
 
         if (notif.soundEnabled) {
           get().playSound(notif.sound, notif.volume)
@@ -187,7 +193,9 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => {
     addToast: (toast) => {
       const id = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
       set((state) => {
-        const nextToasts = [...state.toasts, { ...toast, id }]
+        // One ticket — one toast on screen: a burst of changes replaces its own
+        // message instead of stacking three of them.
+        const nextToasts = [...state.toasts.filter(t => t.ticketId !== toast.ticketId), { ...toast, id }]
         if (nextToasts.length > 3) {
           nextToasts.shift()
         }
