@@ -376,23 +376,18 @@ export async function loginWrapper(email: string, password: string): Promise<App
   logger.info('Wrapper login successful, landed on:', loginResp.url)
   logger.info('Wrapper login OK, fetching Zammad API key from profile...')
 
-  // The cookie is the actual proof that a session exists; the page contents only
-  // tell us whether this particular request was answered with it.
-  const identityCookieSet = async (): Promise<boolean> => {
-    try {
-      const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
-      return cookies.some(cookie => cookie.name === '.AspNetCore.Identity.Application')
-    } catch {
-      return false
-    }
-  }
-
-  if (!await identityCookieSet()) {
-    logger.error('Кука сессии clients не установлена после входа')
-    throw new Error(
-      'Сессия не была создана: clients не выдал куку входа. ' +
-      'Проверьте системные дату и время, а затем повторите вход.'
-    )
+  // Diagnostics only. The cookie store is written asynchronously and the auth
+  // cookie is not always visible right after the response resolves, so a missing
+  // cookie here must never fail a login that otherwise works — whether the
+  // profile page loads is the real answer.
+  try {
+    const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
+    logger.info('Куки clients после входа:', {
+      names: cookies.map(cookie => cookie.name),
+      hasIdentity: cookies.some(cookie => cookie.name === '.AspNetCore.Identity.Application')
+    })
+  } catch (err) {
+    logger.warn('Не удалось прочитать куки clients:', err)
   }
 
   const loadProfile = async () => {
@@ -420,8 +415,8 @@ export async function loginWrapper(email: string, password: string): Promise<App
       snippet: profile.html.slice(0, 300)
     })
     throw new Error(
-      'Вход выполнен, но clients не отдаёт профиль. ' +
-      'Повторите попытку; если ошибка остаётся — проверьте доступ к clients.denvic.ru и системное время.'
+      'Сессия не была создана: clients просит войти заново. ' +
+      'Повторите попытку; если ошибка остаётся — проверьте системные дату и время и доступ к clients.denvic.ru.'
     )
   }
 
@@ -455,6 +450,8 @@ export async function loginWrapper(email: string, password: string): Promise<App
     )
   }
 
+  markClientsSessionAlive()
+
   const zUser = await fetchZammadUser(token)
   if (zUser) return zUser
 
@@ -462,10 +459,29 @@ export async function loginWrapper(email: string, password: string): Promise<App
   return { email, login, firstname: login, lastname: '' }
 }
 
+// How long a confirmed clients session is trusted without re-checking.
+const CLIENTS_SESSION_TTL = 20 * 60_000
+let clientsSessionConfirmedAt = 0
+
+/** Called when clients answered a request as a logged-in user. */
+export function markClientsSessionAlive(): void {
+  clientsSessionConfirmedAt = Date.now()
+}
+
+/** Called when clients answered with the login page. */
+export function markClientsSessionDead(): void {
+  clientsSessionConfirmedAt = 0
+}
+
 export async function isWrapperSessionAlive(): Promise<boolean> {
+  if (Date.now() - clientsSessionConfirmedAt < CLIENTS_SESSION_TTL) return true
+
   try {
     const ses = wrapperSession()
     const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
+    // net.fetch keeps the wrapper cookies in a jar this query does not always
+    // see (it comes back empty on a perfectly working session), so a miss here
+    // only means "not confirmed", never "logged out".
     return cookies.some((c) => c.name === '.AspNetCore.Identity.Application')
   } catch {
     return false
