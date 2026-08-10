@@ -255,6 +255,8 @@ const api = {
     },
     setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean): Promise<{ ok: true }> =>
       invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
+    setTitle: (ticketId: number, title: string): Promise<{ ok: true; title: string }> =>
+      invoke('tickets:setTitle', ticketId, title),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }

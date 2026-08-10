@@ -83,6 +83,7 @@ declare global {
         cancelUpload: (uploadId: string) => Promise<boolean>
         onUploadProgress: (callback: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void
         setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean) => Promise<{ ok: true }>
+        setTitle: (ticketId: number, title: string) => Promise<{ ok: true; title: string }>
         exportTicket: (
           ticketId: number,
           options: { text: boolean; images: boolean; files: boolean }
