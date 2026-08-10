@@ -22,6 +22,7 @@ import {
   getAutoArticleType,
   getPriorityOrder,
   getVisibleAttachments,
+  htmlToPlainText,
   isAutoReplyArticle,
   isPendingOrClosedState,
   isReasonRequiredState,
@@ -49,6 +50,27 @@ interface CommentSubmission {
   }
   timeUnit: number | null
   includeArticle: boolean
+}
+
+/** Id of the not-yet-delivered message; negative so it never clashes with a real one. */
+const PENDING_ARTICLE_ID = -1
+
+/** Stands in for the timestamp until the message is delivered. */
+function PendingStatus({ failed }: { failed: boolean }) {
+  if (failed) {
+    return (
+      <span className="flex items-center gap-1 text-destructive">
+        <AlertCircle className="h-3 w-3" />
+        Не отправлено
+      </span>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1 opacity-70">
+      <Loader2 className="h-3 w-3 animate-spin" />
+      Отправляется…
+    </span>
+  )
 }
 
 interface PendingComment extends CommentSubmission {
@@ -674,17 +696,19 @@ export default function TicketDetailsPage() {
         attachments
       })
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: async (_data, variables) => {
       if (variables.includeArticle) {
         setCommentTimeUnit('')
         setIsTimeModalOpen(false)
       }
-      setPendingComment(null)
       setCommentError('')
       setCommentWarning('')
       queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      queryClient.invalidateQueries({ queryKey: ['ticket-articles', idNum] })
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      // The placeholder is removed only once the real article is in the list.
+      // Clearing it earlier made the message blink out and back in.
+      await queryClient.invalidateQueries({ queryKey: ['ticket-articles', idNum] })
+      setPendingComment(null)
       if (afterCommentSubmitAction === 'close' && activeTabId) {
         closeTab(activeTabId)
       }
@@ -1005,6 +1029,48 @@ export default function TicketDetailsPage() {
   const sortedArticles = articles ? [...articles].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) : []
   const firstArticle = sortedArticles[0]
   const chatArticles = sortedArticles.slice(1)
+
+  // The message being sent is rendered by the very same code as a delivered one,
+  // as the last entry of the thread. Nothing is swapped when the server answers:
+  // the bubble simply stops saying "Отправляется…" and shows its time, so the
+  // list never reflows.
+  const displayArticles: TicketArticle[] = pendingComment
+    ? [...chatArticles, {
+        id: PENDING_ARTICLE_ID,
+        ticketId: idNum,
+        body: toHtmlComment(pendingComment.draft.body),
+        contentType: 'text/html',
+        type: pendingComment.draft.articleType,
+        sender: 'agent',
+        internal: pendingComment.draft.internal,
+        createdAt: pendingComment.at,
+        creatorName: currentUser ? getUserDisplayName(currentUser.firstname, currentUser.lastname) : 'Вы',
+        creatorAvatarDataUrl: currentUser?.avatarDataUrl ?? null,
+        attachments: pendingComment.draft.attachments.map((attachment, index) => ({
+          id: PENDING_ARTICLE_ID - index,
+          filename: attachment.filename,
+          size: attachment.size,
+          mimeType: attachment.mimeType
+        }))
+      }]
+    : chatArticles
+
+  // The real article can arrive from the poller before our own refetch finishes,
+  // and then both were on screen at once. Whoever brings it first, the
+  // placeholder goes as soon as the message itself is in the thread.
+  useEffect(() => {
+    if (!pendingComment || pendingComment.failed) return
+    const sentAt = Date.parse(pendingComment.at)
+    const draftText = pendingComment.draft.body.trim()
+    const arrived = chatArticles.some(article => {
+      const createdAt = Date.parse(article.createdAt)
+      if (!Number.isFinite(createdAt) || createdAt < sentAt - 5000) return false
+      return draftText
+        ? htmlToPlainText(article.body).trim() === draftText
+        : getVisibleAttachments(article.attachments).length > 0
+    })
+    if (arrived) setPendingComment(null)
+  }, [chatArticles, pendingComment])
 const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
     getVisibleAttachments(article.attachments).map(attachment => ({
       ...attachment,
@@ -1405,7 +1471,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
                   <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                  Комментарии ({chatArticles.length})
+                  Комментарии ({displayArticles.length})
                 </h2>
                 {allAttachments.length > 0 && (
                   <button
@@ -1436,15 +1502,16 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
             </div>
 
             <div className="flex flex-col gap-5">
-              {chatArticles.length > 0 ? (
-                chatArticles.map((article) => {
+              {displayArticles.length > 0 ? (
+                displayArticles.map((article) => {
                   const isNote = !!article.internal
                   const sender = String(article.sender).toLowerCase()
                   const isAgent = sender === 'agent'
                   // bubbleSide: 'client-right' (default) keeps clients on the right;
                   // 'client-left' puts clients left and our (agent) messages right.
                   const isRightAligned = bubbleSide === 'client-left' ? isAgent : sender === 'customer'
-                  const isAuto = isAutoReplyArticle(article.body, article.creatorName) || String(article.sender).toLowerCase() === 'system'
+                  const isPending = article.id === PENDING_ARTICLE_ID
+                  const isAuto = !isPending && (isAutoReplyArticle(article.body, article.creatorName) || String(article.sender).toLowerCase() === 'system')
                   const isExpanded = !!expandedAutoReplies[article.id]
 
                   if (isAuto) {
@@ -1514,11 +1581,23 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-zinc-550 dark:text-zinc-400 font-mono">
                             <ChannelIcon channel={isNote ? 'note' : article.type} />
-                            <span>{formatTicketDate(article.createdAt)}</span>
+                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} /> : formatTicketDate(article.createdAt)}</span>
                           </div>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />
+
+                        {isPending && pendingComment?.failed && (
+                          <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
+                            <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
+                              <RefreshCw className="h-3 w-3" />
+                              Повторить
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={discardPendingComment} className="h-7 text-xs text-muted-foreground">
+                              Вернуть в поле ввода
+                            </Button>
+                          </div>
+                        )}
 
                         {article.callRecordUrl && (
                           <MiniAudioPlayer url={article.callRecordUrl} isPrivate={isNote} />
@@ -1590,10 +1669,22 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                               {isNote && <span className="text-amber-500 dark:text-amber-400 font-semibold ml-1">(Внутренняя заметка)</span>}
                             </span>
                           </div>
-                          <span className="font-mono">{formatTicketDate(article.createdAt)}</span>
+                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} /> : formatTicketDate(article.createdAt)}</span>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />
+
+                        {isPending && pendingComment?.failed && (
+                          <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
+                            <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
+                              <RefreshCw className="h-3 w-3" />
+                              Повторить
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={discardPendingComment} className="h-7 text-xs text-muted-foreground">
+                              Вернуть в поле ввода
+                            </Button>
+                          </div>
+                        )}
 
                         {article.callRecordUrl && (
                           <MiniAudioPlayer url={article.callRecordUrl} isPrivate={isNote} />
@@ -1642,80 +1733,6 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 </div>
               ) : null}
 
-              {pendingComment && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={cn(
-                    'w-full flex gap-2.5 items-start',
-                    bubbleSide === 'client-left' ? 'justify-end' : 'justify-end'
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'max-w-[88%] rounded-2xl rounded-tr-none border px-5 py-4 shadow-sm flex flex-col gap-3 transition-opacity',
-                      pendingComment.draft.internal
-                        ? 'bg-red-50/70 dark:bg-red-950/35 border-red-200/60 dark:border-red-900/40 text-red-950 dark:text-zinc-100'
-                        : 'bg-blue-50/70 dark:bg-blue-950/45 border-blue-200/60 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100',
-                      pendingComment.failed ? 'border-destructive/50' : 'opacity-70'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-6 border-b border-zinc-200 pb-2 text-xs text-zinc-550 dark:border-zinc-700/30 dark:text-zinc-400">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <ChannelIcon channel={pendingComment.draft.internal ? 'note' : pendingComment.draft.articleType} />
-                        <span className="text-zinc-850 dark:text-zinc-300">
-                          {currentUser ? getUserDisplayName(currentUser.firstname, currentUser.lastname) : 'Вы'}
-                          {pendingComment.draft.internal && (
-                            <span className="ml-1 font-semibold text-amber-500 dark:text-amber-400">(Внутренняя заметка)</span>
-                          )}
-                        </span>
-                      </div>
-                      <span className="flex items-center gap-1.5 font-mono">
-                        {pendingComment.failed ? (
-                          <span className="flex items-center gap-1 text-destructive">
-                            <AlertCircle className="h-3 w-3" />
-                            Не отправлено
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            Отправляется…
-                          </span>
-                        )}
-                      </span>
-                    </div>
-
-                    <p className="whitespace-pre-wrap break-words text-sm leading-6">{pendingComment.draft.body}</p>
-
-                    {pendingComment.draft.attachments.length > 0 && (
-                      <div className="flex flex-wrap gap-2 border-t border-zinc-700/30 pt-2.5">
-                        {pendingComment.draft.attachments.map(attachment => (
-                          <span
-                            key={attachment.id}
-                            className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground"
-                          >
-                            <Paperclip className="h-3 w-3 shrink-0" />
-                            <span className="max-w-[160px] truncate">{attachment.filename}</span>
-                            <span className="opacity-70">{formatAttachmentSize(attachment.size)}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {pendingComment.failed && (
-                      <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
-                        <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
-                          <RefreshCw className="h-3 w-3" />
-                          Повторить
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={discardPendingComment} className="h-7 text-xs text-muted-foreground">
-                          Вернуть в поле ввода
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
             </div>
           </div>
 
