@@ -542,6 +542,23 @@ export default function TicketDetailsPage() {
 
   // The composer is cleared the moment the message is sent, so the payload has to
   // travel with the mutation instead of being read back from the state.
+  // The real article can arrive from the poller before our own refetch finishes,
+  // and then both were on screen at once. Whoever brings it first, the
+  // placeholder goes as soon as the message itself is in the thread.
+  useEffect(() => {
+    if (!pendingComment || pendingComment.failed) return
+    const sentAt = Date.parse(pendingComment.at)
+    const draftText = pendingComment.draft.body.trim()
+    const arrived = (articles ?? []).some(article => {
+      const createdAt = Date.parse(article.createdAt)
+      if (!Number.isFinite(createdAt) || createdAt < sentAt - 5000) return false
+      return draftText
+        ? htmlToPlainText(article.body).trim() === draftText
+        : getVisibleAttachments(article.attachments).length > 0
+    })
+    if (arrived) setPendingComment(null)
+  }, [articles, pendingComment])
+
   const addCommentMutation = useMutation({
     mutationFn: async ({ draft, timeUnit, includeArticle }: CommentSubmission) => {
       const attachments = includeArticle ? draft.attachments.map(attachment => ({
@@ -925,22 +942,6 @@ export default function TicketDetailsPage() {
       }]
     : chatArticles
 
-  // The real article can arrive from the poller before our own refetch finishes,
-  // and then both were on screen at once. Whoever brings it first, the
-  // placeholder goes as soon as the message itself is in the thread.
-  useEffect(() => {
-    if (!pendingComment || pendingComment.failed) return
-    const sentAt = Date.parse(pendingComment.at)
-    const draftText = pendingComment.draft.body.trim()
-    const arrived = chatArticles.some(article => {
-      const createdAt = Date.parse(article.createdAt)
-      if (!Number.isFinite(createdAt) || createdAt < sentAt - 5000) return false
-      return draftText
-        ? htmlToPlainText(article.body).trim() === draftText
-        : getVisibleAttachments(article.attachments).length > 0
-    })
-    if (arrived) setPendingComment(null)
-  }, [chatArticles, pendingComment])
 const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
     getVisibleAttachments(article.attachments).map(attachment => ({
       ...attachment,
