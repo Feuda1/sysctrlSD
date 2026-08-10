@@ -50,7 +50,6 @@ import type { NotificationItem } from '../../preload/index'
 
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
 const WRAPPER_BASE = 'https://clients.denvic.ru'
-const WRAPPER_PARTITION = 'persist:clients-denvic'
 const CLIENTS_FILTER_IDS = [522, 540, 541, 1067]
 
 const activeSystemNotifications = new Set<any>()
@@ -893,8 +892,12 @@ interface ClientsTicketIndex {
   byClientNumber: Map<string, { zammadId?: string; zammadNumber?: string }>
 }
 
+// net.fetch() ignores the `session` option — that option belongs to
+// net.request() — so every clients request has always gone through the default
+// session, and that is where the login cookie lives. Pointing this helper at the
+// same session is what makes the cookie checks agree with reality.
 function wrapperSession() {
-  return session.fromPartition(WRAPPER_PARTITION)
+  return session.defaultSession
 }
 
 /**

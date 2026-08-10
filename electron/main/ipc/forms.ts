@@ -4,10 +4,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import log from 'electron-log/main'
 
 const WRAPPER_BASE = 'https://clients.denvic.ru'
-const WRAPPER_PARTITION = 'persist:clients-denvic'
 
+// net.fetch() ignores the `session` option — that option belongs to
+// net.request() — so every clients request has always gone through the default
+// session, and that is where the login cookie lives. Pointing this helper at the
+// same session is what makes the cookie checks agree with reality.
 function wrapperSession() {
-  return session.fromPartition(WRAPPER_PARTITION)
+  return session.defaultSession
 }
 
 function decodeHtml(value: string): string {
