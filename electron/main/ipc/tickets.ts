@@ -2,7 +2,7 @@ import { ipcMain, net, app, session } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import logger from 'electron-log/main'
-import { isWrapperSessionAlive, loginWrapper, readStored, writeStored, setZammadTokenCache } from './auth'
+import { isWrapperSessionAlive, loginWrapper, readStored, writeStored, setZammadTokenCache, markClientsSessionAlive, markClientsSessionDead } from './auth'
 import type { NotificationSettings, NotificationItem } from '../../preload/index'
 
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
@@ -4024,16 +4024,23 @@ async function loadClientsPage(url: string, what: string, expected: RegExp): Pro
   }
 
   let html = await fetchOnce()
-  if (!expected.test(html)) {
-    logger.warn(`Страница ${what} не загрузилась (сессия clients истекла?), выполняю вход заново`)
-    await reloginClientsSession()
-    html = await fetchOnce()
-    if (!expected.test(html)) {
-      throw new Error(isClientsLoginPage(html)
-        ? 'Сессия clients истекла. Выполните вход в приложение заново.'
-        : `Страница ${what} на clients вернулась в неожиданном виде — создание отменено.`)
-    }
+  if (expected.test(html)) {
+    markClientsSessionAlive()
+    return html
   }
+
+  logger.warn(`Страница ${what} не загрузилась (сессия clients истекла?), выполняю вход заново`)
+  markClientsSessionDead()
+  await reloginClientsSession()
+
+  html = await fetchOnce()
+  if (!expected.test(html)) {
+    throw new Error(isClientsLoginPage(html)
+      ? 'Сессия clients истекла. Выполните вход в приложение заново.'
+      : `Страница ${what} на clients вернулась в неожиданном виде — создание отменено.`)
+  }
+
+  markClientsSessionAlive()
   return html
 }
 
