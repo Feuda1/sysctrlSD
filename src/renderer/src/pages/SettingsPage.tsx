@@ -610,6 +610,32 @@ function OpenCreatedTicketSettings() {
   )
 }
 
+function SendSuggestionSettings() {
+  const { suggestStateOnSend, setSuggestStateOnSend, suggestReasonOnSend, setSuggestReasonOnSend } = useUIStore()
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">Подсказки при отправке</p>
+        <p className="text-xs text-muted-foreground">
+          В окне учёта времени предлагать то, что осталось незаполненным
+        </p>
+      </div>
+
+      <SettingRow
+        title="Предлагать выставить статус заявки"
+        description="Появляется, если статус не меняли перед отправкой"
+        control={<Switch checked={suggestStateOnSend} onChange={setSuggestStateOnSend} />}
+      />
+      <SettingRow
+        title="Предлагать выставить причину обращения"
+        description="Появляется, если причина не выбрана"
+        control={<Switch checked={suggestReasonOnSend} onChange={setSuggestReasonOnSend} />}
+      />
+    </div>
+  )
+}
+
 function ScrollDownArrowSettings() {
   const { hideScrollDownArrow, setHideScrollDownArrow } = useUIStore()
 
@@ -1924,6 +1950,8 @@ export default function SettingsPage() {
                     <AfterCommentSubmitSettings />
                     <div className="h-px bg-border/40" />
                     <OpenCreatedTicketSettings />
+                    <div className="h-px bg-border/40" />
+                    <SendSuggestionSettings />
                     <div className="h-px bg-border/40" />
                     <ScrollDownArrowSettings />
                   </div>

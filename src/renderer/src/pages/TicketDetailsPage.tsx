@@ -172,6 +172,8 @@ export default function TicketDetailsPage() {
   const hideScrollDownArrow = useUIStore(s => s.hideScrollDownArrow)
   const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
   const allowScoreWithoutClientsRight = useUIStore(s => s.allowScoreWithoutClientsRight)
+  const suggestStateOnSend = useUIStore(s => s.suggestStateOnSend)
+  const suggestReasonOnSend = useUIStore(s => s.suggestReasonOnSend)
   const currentUser = useAuthStore(s => s.user)
   const closeTab = useTabsStore(s => s.closeTab)
   const activeTabId = useTabsStore(s => s.activeTabId)
@@ -398,6 +400,15 @@ export default function TicketDetailsPage() {
     setPendingComment(null)
     setCommentError('')
   }
+
+  // Shown in the send dialog, and only for what is actually missing: the state
+  // if it was left as it was, the reason if none was picked.
+  const showStateSuggestion = suggestStateOnSend
+    && isTimeModalOpen
+    && commentStateId === detailsData?.ticket?.state?.id
+  const showReasonSuggestion = suggestReasonOnSend
+    && isTimeModalOpen
+    && iikoReasonIds.length === 0
 
   const openTimeModal = (keepTime: boolean | any = false) => {
     const isKeepTime = keepTime === true
@@ -863,6 +874,57 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   ))}
                 </div>
               </div>
+
+              {(showStateSuggestion || showReasonSuggestion) && (
+                <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/15 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Заодно можно указать
+                  </p>
+
+                  {showStateSuggestion && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground">Статус заявки не менялся</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {stateOptions.map(state => {
+                          const color = filtersData?.stateColors?.[Number(state.id)]
+                          const active = Number(state.id) === commentStateId
+                          return (
+                            <button
+                              key={state.id}
+                              type="button"
+                              onClick={() => setCommentStateId(Number(state.id))}
+                              className={cn(
+                                'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                                active
+                                  ? 'border-primary/50 bg-primary/10 text-primary'
+                                  : !color && getStateBadgeClass(state.name),
+                                !active && !color && 'opacity-80 hover:opacity-100',
+                                !active && color && 'border-border/60 hover:bg-accent/40'
+                              )}
+                              style={!active && color ? { color, borderColor: `${color}55`, backgroundColor: `${color}12` } : undefined}
+                            >
+                              {state.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {showReasonSuggestion && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground">Причина обращения не указана</p>
+                      <CustomMultiSelect
+                        values={iikoReasonIds}
+                        options={iikoReasonOptions}
+                        onChange={reasons => setIikoReasonIds(reasons.map(reason => String(reason.id)))}
+                        placeholder="Выберите причину"
+                        renderChip={reason => <span className="truncate text-sky-700 dark:text-sky-300">{reason.name}</span>}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {commentError && (
                 <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -1462,7 +1524,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   className="h-9 gap-2 rounded-r-none border-r border-primary-foreground/10"
                 >
                   <Send className="h-4 w-4" />
-                  Отправить всё
+                  Отправить
                 </Button>
                 <Button
                   type="button"
