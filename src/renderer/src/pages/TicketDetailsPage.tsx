@@ -138,6 +138,7 @@ export default function TicketDetailsPage() {
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null)
   const [uploadProgress, setUploadProgress] = useState<{ sent: number; total: number } | null>(null)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
+  const [articleQuery, setArticleQuery] = useState('')
   const [commentArticleType, setCommentArticleType] = useState('')
   const [commentStateId, setCommentStateId] = useState<number | null>(null)
   const [ticketTypeId, setTicketTypeId] = useState<string | null>(null)
@@ -752,6 +753,16 @@ export default function TicketDetailsPage() {
   // as the last entry of the thread. Nothing is swapped when the server answers:
   // the bubble simply stops saying "Отправляется…" and shows its time, so the
   // list never reflows.
+  // Searching a long thread by eye is the only option today. Matching runs over
+  // the plain text of a message, its author and its attachment names.
+  const articleQueryText = articleQuery.trim().toLowerCase()
+  const matchesQuery = (article: TicketArticle): boolean => {
+    if (!articleQueryText) return true
+    if (htmlToPlainText(article.body).toLowerCase().includes(articleQueryText)) return true
+    if ((article.creatorName || '').toLowerCase().includes(articleQueryText)) return true
+    return getVisibleAttachments(article.attachments).some(att => att.filename.toLowerCase().includes(articleQueryText))
+  }
+
   const pendingAttachmentBytes = (pendingComment?.draft.attachments ?? []).reduce((sum, item) => sum + (item.size || 0), 0)
 
   const displayArticles: TicketArticle[] = pendingComment
@@ -1251,8 +1262,21 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-sm font-semibold text-muted-foreground flex items-center gap-1.5">
                   <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                  Комментарии ({displayArticles.length})
+                  {articleQueryText
+                    ? `Комментарии (${displayArticles.filter(matchesQuery).length} из ${displayArticles.length})`
+                    : `Комментарии (${displayArticles.length})`}
                 </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="search"
+                    value={articleQuery}
+                    onChange={event => setArticleQuery(event.target.value)}
+                    placeholder="Поиск в переписке…"
+                    className="h-8 w-56 rounded-md border border-border bg-muted/25 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground transition-colors focus:border-primary/60 focus:outline-none"
+                  />
+                </div>
                 {allAttachments.length > 0 && (
                   <button
                     type="button"
@@ -1264,6 +1288,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                     {attachmentsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   </button>
                 )}
+                </div>
               </div>
               {allAttachments.length > 0 && attachmentsOpen && (
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -1282,8 +1307,8 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
             </div>
 
             <div className="flex flex-col gap-5">
-              {displayArticles.length > 0 ? (
-                displayArticles.map((article) => {
+              {displayArticles.filter(matchesQuery).length > 0 ? (
+                displayArticles.filter(matchesQuery).map((article) => {
                   const isNote = !!article.internal
                   const sender = String(article.sender).toLowerCase()
                   const isAgent = sender === 'agent'
@@ -1523,7 +1548,9 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 })
               ) : !pendingComment ? (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
-                  <p className="text-xs">Нет комментариев к заявке</p>
+                  <p className="text-xs">
+                    {articleQueryText ? 'Ничего не найдено в переписке' : 'Нет комментариев к заявке'}
+                  </p>
                 </div>
               ) : null}
 
