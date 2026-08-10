@@ -117,6 +117,7 @@ export default function TicketDetailsPage() {
   const ticketScrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const composerRef = useRef<HTMLDivElement | null>(null)
 
   const [expandedAutoReplies, setExpandedAutoReplies] = useState<Record<number, boolean>>({})
   const [previewItems, setPreviewItems] = useState<ViewerItem[]>([])
@@ -538,6 +539,18 @@ export default function TicketDetailsPage() {
     void addComposerFiles(files)
   }
 
+  // A drag abandoned outside the composer (dropped elsewhere, or cancelled with
+  // Escape) fires no event on it, so the highlight would stay on for good.
+  useEffect(() => {
+    const stop = () => setIsDraggingFiles(false)
+    window.addEventListener('dragend', stop)
+    window.addEventListener('drop', stop)
+    return () => {
+      window.removeEventListener('dragend', stop)
+      window.removeEventListener('drop', stop)
+    }
+  }, [])
+
   // Dragging a file from Explorer or a mail client is the most common gesture in
   // support work; until now the only way in was the file dialog.
   const handleComposerDragOver = (event: React.DragEvent) => {
@@ -560,8 +573,29 @@ export default function TicketDetailsPage() {
     // window navigate to it and the ticket would disappear from the screen.
     event.preventDefault()
     setIsDraggingFiles(false)
+
     const files = Array.from(event.dataTransfer.files)
-    if (files.length > 0) void addComposerFiles(files)
+    if (files.length > 0) {
+      void addComposerFiles(files)
+      return
+    }
+
+    // An image dragged straight from a browser or a chat carries no file, only a
+    // link to it — so it has to be fetched before it can be attached.
+    const url = (event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain')).trim()
+    if (/^https?:\/\//i.test(url)) void addComposerFilesFromUrl(url)
+  }
+
+  const addComposerFilesFromUrl = async (url: string) => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`Сервер ответил ${response.status}`)
+      const blob = await response.blob()
+      const name = decodeURIComponent(new URL(url).pathname.split('/').pop() || '') || 'image'
+      await addComposerFiles([new File([blob], name, { type: blob.type })])
+    } catch {
+      setCommentWarning('Не удалось скачать перетащенное изображение. Сохраните его на диск и приложите файлом.')
+    }
   }
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1174,20 +1208,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </div>
 
           {(detailsData?.ticket?.subTickets && detailsData.ticket.subTickets.length > 0 || true) && (
-            <div
-            onDragOver={handleComposerDragOver}
-            onDragLeave={handleComposerDragLeave}
-            onDrop={handleComposerDrop}
-            className={cn(
-              "relative bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4 transition-colors",
-              isDraggingFiles && "border-primary/60 bg-primary/5"
-            )}
-          >
-            {isDraggingFiles && (
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-card/80 text-xs font-medium text-primary">
-                Отпустите файлы, чтобы прикрепить
-              </div>
-            )}
+            <div className="bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <button
                   type="button"
@@ -1560,7 +1581,21 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
             </div>
           </div>
 
-          <div className="bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4">
+          <div
+            ref={composerRef}
+            onDragOver={handleComposerDragOver}
+            onDragLeave={handleComposerDragLeave}
+            onDrop={handleComposerDrop}
+            className={cn(
+              'relative bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4 transition-colors',
+              isDraggingFiles && 'border-primary/60 bg-primary/5'
+            )}
+          >
+            {isDraggingFiles && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-card/80 text-xs font-medium text-primary">
+                Отпустите файлы, чтобы прикрепить
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                 <StickyNote className="h-3.5 w-3.5 text-primary" />
