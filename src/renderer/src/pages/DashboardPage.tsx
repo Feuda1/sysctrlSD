@@ -64,6 +64,10 @@ export default function DashboardPage() {
   // articles) gets the same menu, so the actions follow the target instead of
   // the generic edit menu.
   const showTargetContextMenu = async (e: React.MouseEvent) => {
+    // An image carries its own menu (copy/save), built in the main process from
+    // what is painted under the cursor — never shadow it.
+    if ((e.target as HTMLElement).tagName === 'IMG') return
+
     const el = (e.target as HTMLElement).closest('[data-tab-path]')
     const path = el?.getAttribute('data-tab-path')
     if (!path) return
