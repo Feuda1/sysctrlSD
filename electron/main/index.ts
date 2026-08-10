@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, nativeTheme, session, Menu, MenuItem, Tray, net } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, nativeTheme, session, Menu, MenuItem, Tray, net, clipboard } from 'electron'
 import { join, resolve } from 'path'
 import { setupUpdater, quitAndInstallUpdate } from './updater'
 import { setupAuthIpc } from './ipc/auth'
@@ -103,6 +103,30 @@ function attachContextMenu(win: BrowserWindow): void {
         label: 'Добавить в словарь',
         click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
       }))
+    }
+
+    // Works for any rendered image regardless of where it came from — an
+    // attachment thumbnail, an image inside an article, or the media viewer —
+    // because copyImageAt takes what is painted at that point.
+    if (params.mediaType === 'image') {
+      if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }))
+      menu.append(new MenuItem({
+        label: 'Копировать изображение',
+        click: () => win.webContents.copyImageAt(params.x, params.y)
+      }))
+      if (params.srcURL) {
+        menu.append(new MenuItem({
+          label: 'Сохранить изображение…',
+          click: () => win.webContents.downloadURL(params.srcURL)
+        }))
+        // A data: URL is the image itself — copying it as text is useless.
+        if (/^https?:/i.test(params.srcURL)) {
+          menu.append(new MenuItem({
+            label: 'Копировать ссылку на изображение',
+            click: () => clipboard.writeText(params.srcURL)
+          }))
+        }
+      }
     }
 
     // Only offer editing where editing is possible. "Выбрать всё" used to appear
