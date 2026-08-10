@@ -340,15 +340,27 @@ export default function TicketDetailsPage() {
   const [titleError, setTitleError] = useState('')
   const titleInputRef = useRef<HTMLInputElement | null>(null)
 
+  // Новый заголовок показывается сразу, ещё до ответа сервера, и держится до
+  // тех пор, пока заявка не перечитана — иначе на экране успел бы моргнуть
+  // старый текст и через секунду смениться новым.
+  const [savingTitle, setSavingTitle] = useState<string | null>(null)
+
   const updateTitleMutation = useMutation({
     mutationFn: (title: string) => window.api.tickets.setTitle(idNum, title),
-    onSuccess: () => {
-      setIsEditingTitle(false)
+    onSuccess: async (result) => {
       setTitleError('')
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      // Сервер мог подровнять текст (пробелы, длина) — показываем то, что он принял.
+      setSavingTitle(result.title)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] }),
+        queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      ])
+      setSavingTitle(null)
     },
     onError: (error: unknown) => {
+      setSavingTitle(null)
+      // Поле открывается обратно с несохранённым текстом: правку не потеряли.
+      setIsEditingTitle(true)
       setTitleError(error instanceof Error ? error.message : 'Не удалось изменить заголовок')
     }
   })
@@ -372,6 +384,11 @@ export default function TicketDetailsPage() {
       setTitleError('')
       return
     }
+    // Поле закрывается сразу: дальше новый заголовок живёт на своём месте и
+    // сам показывает, что ещё сохраняется.
+    setIsEditingTitle(false)
+    setTitleError('')
+    setSavingTitle(next)
     updateTitleMutation.mutate(next)
   }
 
@@ -1270,17 +1287,32 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                         // Карандаш проявляется при наведении на строку — чтобы он не
                         // мозолил глаза, но и не прятался от того, кто его ищет.
                         <div className="group/title flex items-start gap-2">
-                          <h1 className="text-lg font-bold text-foreground leading-7">
-                            {ticket.clientNumber ? `[${ticket.clientNumber}] ` : ''}{ticket.title}
-                          </h1>
-                          <button
-                            type="button"
-                            onClick={() => startTitleEdit(ticket.title)}
-                            title="Изменить заголовок"
-                            className="mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
+                          <h1
+                            className={cn(
+                              'text-lg font-bold leading-7 transition-colors duration-300',
+                              savingTitle ? 'text-muted-foreground' : 'text-foreground'
+                            )}
                           >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
+                            {ticket.clientNumber ? `[${ticket.clientNumber}] ` : ''}
+                            {savingTitle ?? ticket.title}
+                          </h1>
+                          {savingTitle ? (
+                            <span
+                              className="mt-1.5 shrink-0 text-primary"
+                              title="Сохраняем заголовок…"
+                            >
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startTitleEdit(ticket.title)}
+                              title="Изменить заголовок"
+                              className="mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
