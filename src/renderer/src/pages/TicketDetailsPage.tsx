@@ -353,11 +353,7 @@ export default function TicketDetailsPage() {
         uploadId
       })
     },
-    onSuccess: async (_data, variables) => {
-      if (variables.includeArticle) {
-        setCommentTimeUnit('')
-        setIsTimeModalOpen(false)
-      }
+    onSuccess: async () => {
       setCommentError('')
       setCommentWarning('')
       queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
@@ -390,6 +386,10 @@ export default function TicketDetailsPage() {
   }, [pendingComment?.uploadId])
 
   const sendComment = (submission: CommentSubmission) => {
+    // The dialog has done its job once the time is entered — the message itself
+    // shows what happens next, and waiting here just froze the window.
+    setIsTimeModalOpen(false)
+    setCommentTimeUnit('')
     const uploadId = submission.draft.attachments.length > 0
       ? `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       : undefined

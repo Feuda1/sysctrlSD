@@ -49,7 +49,8 @@ export function putWithProgress(options: {
   return new Promise<UploadResult>((resolve, reject) => {
     const request = net.request({ method: 'PUT', url })
     for (const [name, value] of Object.entries(headers)) request.setHeader(name, value)
-    request.setHeader('Content-Length', String(body.length))
+    // Content-Length is Electron's to set: writing it by hand while streaming
+    // the body makes the request fail with ERR_INVALID_ARGUMENT.
 
     let settled = false
     let cancelled = false
@@ -98,8 +99,9 @@ export function putWithProgress(options: {
       const end = Math.min(offset + CHUNK_SIZE, body.length)
       const chunk = body.subarray(offset, end)
       offset = end
-      // The three-argument form is the one that takes a completion callback.
-      request.write(chunk, 'binary', () => {
+      // The three-argument form is the one that takes a completion callback;
+      // for a Buffer the encoding argument is ignored.
+      request.write(chunk, 'utf-8', () => {
         if (uploadId) reportProgress(uploadId, offset, body.length)
         writeNext()
       })

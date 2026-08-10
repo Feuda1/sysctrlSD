@@ -740,6 +740,11 @@ function describeHttpError(status: number, text: string, fallback: string): stri
   if (status === 401 || status === 403) {
     return `Нет доступа (${status}). Проверьте Zammad API ключ в настройках.`
   }
+  // The server rejects the body before reading it; the raw "413" tells the user
+  // nothing, and the file is always the reason.
+  if (status === 413) {
+    return 'Вложение слишком большое — сервер не принимает файл такого размера. Отправьте файл меньше или ссылкой.'
+  }
   const trimmed = (text || '').trim()
   let detail = ''
   if (trimmed && !/^\s*<(?:!doctype|html|head|body)/i.test(trimmed)) {
