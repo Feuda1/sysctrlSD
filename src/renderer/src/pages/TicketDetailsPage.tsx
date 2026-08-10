@@ -39,6 +39,7 @@ import { AttachmentTile, AttachmentPreviewCard, MediaViewer, MiniAudioPlayer } f
 import { TicketExportModal } from '@/components/tickets/TicketExportModal'
 import { ArticleBody } from '@/components/tickets/ArticleBody'
 import { TicketHistoryModal } from '@/components/tickets/TicketHistoryModal'
+import { LinkOrganizationModal } from '@/components/tickets/LinkOrganizationModal'
 
 /** Everything needed to send a comment — and to send it again if it fails. */
 interface CommentSubmission {
@@ -232,12 +233,6 @@ export default function TicketDetailsPage() {
   const [linkExistingToOrg, setLinkExistingToOrg] = useState(true)
   const [isSubTicketsOpen, setIsSubTicketsOpen] = useState(false)
   const [linkOrgModalOpen, setLinkOrgModalOpen] = useState(false)
-  const [linkOrgId, setLinkOrgId] = useState<number | null>(null)
-  const [linkOrgSearchQuery, setLinkOrgSearchQuery] = useState('')
-  const [linkOrgSearchResults, setLinkOrgSearchResults] = useState<any[]>([])
-  const [linkOrgSearchLoading, setLinkOrgSearchLoading] = useState(false)
-  const [linkOrgLoading, setLinkOrgLoading] = useState(false)
-  const [linkOrgError, setLinkOrgError] = useState('')
 
   const { data: filtersData } = useTicketFilters()
   const chatStyle = useUIStore(s => s.chatStyle)
@@ -513,55 +508,6 @@ export default function TicketDetailsPage() {
       setSelectingCustomerId(null)
     }
   }
-
-  const handleLinkOrgSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!detailsData?.customer?.id || !linkOrgId) return
-    setLinkOrgLoading(true)
-    setLinkOrgError('')
-    try {
-      await window.api.users.update(detailsData.customer.id, {
-        organization_id: linkOrgId,
-        ticketId: idNum
-      })
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      setLinkOrgModalOpen(false)
-    } catch (err: any) {
-      setLinkOrgError(err.message || 'Ошибка привязки организации')
-    } finally {
-      setLinkOrgLoading(false)
-    }
-  }
-
-  const handleLinkOrgSearch = async (q: string) => {
-    setLinkOrgSearchQuery(q)
-    if (!q.trim()) {
-      setLinkOrgSearchResults([])
-      return
-    }
-    setLinkOrgSearchLoading(true)
-    try {
-      const res = await window.api.organizations.list({ query: q, page: 1, perPage: 15 })
-      setLinkOrgSearchResults(res || [])
-    } catch {
-    } finally {
-      setLinkOrgSearchLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (linkOrgModalOpen) {
-      if (detailsData?.organization) {
-        setLinkOrgId(detailsData.organization.id)
-        setLinkOrgSearchQuery(detailsData.organization.name)
-      } else {
-        setLinkOrgId(null)
-        setLinkOrgSearchQuery('')
-      }
-      setLinkOrgSearchResults([])
-      setLinkOrgError('')
-    }
-  }, [linkOrgModalOpen, detailsData])
 
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -3127,93 +3073,14 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </motion.div>
         )}
 
-        {linkOrgModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <Building className="h-[18px] w-[18px] text-primary" />
-                  Привязка клиента к организации
-                </h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setLinkOrgModalOpen(false); setLinkOrgError(''); }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {linkOrgError && (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                  {linkOrgError}
-                </div>
-              )}
-
-              <form onSubmit={handleLinkOrgSubmit} className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1 relative">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Организация</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={linkOrgSearchQuery}
-                      onChange={(e) => handleLinkOrgSearch(e.target.value)}
-                      placeholder="Поиск организации..."
-                      className="h-9 w-full rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                      required
-                    />
-                    {linkOrgSearchQuery && linkOrgId && (
-                      <button
-                        type="button"
-                        onClick={() => { setLinkOrgId(null); setLinkOrgSearchQuery(''); }}
-                        className="absolute right-2 top-2 h-5 w-5 text-muted-foreground hover:text-foreground flex items-center justify-center rounded"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                  {linkOrgSearchLoading && (
-                    <div className="absolute right-2 top-8">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    </div>
-                  )}
-                  {linkOrgSearchResults.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-32 overflow-y-auto rounded-md border border-border bg-background shadow-md">
-                      {linkOrgSearchResults.map((org) => (
-                        <div
-                          key={org.id}
-                          onClick={() => {
-                            setLinkOrgId(org.id)
-                            setLinkOrgSearchQuery(org.name)
-                            setLinkOrgSearchResults([])
-                          }}
-                          className="px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-sm"
-                        >
-                          {org.name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3 mt-4 border-t border-border pt-3">
-                  <Button variant="outline" size="sm" type="button" onClick={() => setLinkOrgModalOpen(false)} disabled={linkOrgLoading}>
-                    Отмена
-                  </Button>
-                  <Button size="sm" type="submit" disabled={linkOrgLoading || !linkOrgId}>
-                    {linkOrgLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                    Привязать
-                  </Button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
+        {linkOrgModalOpen && detailsData?.customer && (
+          <LinkOrganizationModal
+            customerId={detailsData.customer.id}
+            ticketId={idNum}
+            currentOrganization={detailsData.organization}
+            onClose={() => setLinkOrgModalOpen(false)}
+            onLinked={() => queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })}
+          />
         )}
 
         {exportModalOpen && (
