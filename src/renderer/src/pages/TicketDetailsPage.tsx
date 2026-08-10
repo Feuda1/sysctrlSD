@@ -41,6 +41,7 @@ import { ArticleBody } from '@/components/tickets/ArticleBody'
 import { TicketHistoryModal } from '@/components/tickets/TicketHistoryModal'
 import { LinkOrganizationModal } from '@/components/tickets/LinkOrganizationModal'
 import { EditCustomerModal } from '@/components/tickets/EditCustomerModal'
+import { ChangeCustomerModal } from '@/components/tickets/ChangeCustomerModal'
 
 /** Everything needed to send a comment — and to send it again if it fails. */
 interface CommentSubmission {
@@ -231,7 +232,6 @@ export default function TicketDetailsPage() {
   const [subPriority, setSubPriority] = useState<number>(2)
   const [subState, setSubState] = useState<number>(2)
   const [subTime, setSubTime] = useState<number>(0)
-  const [linkExistingToOrg, setLinkExistingToOrg] = useState(true)
   const [isSubTicketsOpen, setIsSubTicketsOpen] = useState(false)
   const [linkOrgModalOpen, setLinkOrgModalOpen] = useState(false)
 
@@ -455,87 +455,6 @@ export default function TicketDetailsPage() {
       setScoreError(err?.message || 'Не удалось выставить баллы')
     } finally {
       setScoreSaving(false)
-    }
-  }
-
-  const [customerSearch, setCustomerSearch] = useState('')
-  const [customerResults, setCustomerResults] = useState<any[]>([])
-  const [customerSearchLoading, setCustomerSearchLoading] = useState(false)
-  const [activeCustomerTab, setActiveCustomerTab] = useState<'search' | 'create'>('search')
-  const [newCustomerFirstname, setNewCustomerFirstname] = useState('')
-  const [newCustomerLastname, setNewCustomerLastname] = useState('')
-  const [newCustomerEmail, setNewCustomerEmail] = useState('')
-  const [newCustomerPhone, setNewCustomerPhone] = useState('')
-  const [newCustomerMobile, setNewCustomerMobile] = useState('')
-  const [newCustomerTelegram, setNewCustomerTelegram] = useState('')
-  const [linkToOrg, setLinkToOrg] = useState(true)
-  const [changeCustomerError, setChangeCustomerError] = useState('')
-  const [changeCustomerLoading, setChangeCustomerLoading] = useState(false)
-  const [selectingCustomerId, setSelectingCustomerId] = useState<number | null>(null)
-
-  const handleCustomerSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!customerSearch.trim()) return
-    setCustomerSearchLoading(true)
-    setChangeCustomerError('')
-    try {
-      const res = await window.api.users.search(customerSearch)
-      setCustomerResults(res)
-    } catch (err: any) {
-      setChangeCustomerError(err.message || 'Ошибка поиска')
-    } finally {
-      setCustomerSearchLoading(false)
-    }
-  }
-
-  const handleChangeCustomer = async (userId: number) => {
-    setChangeCustomerLoading(true)
-    setSelectingCustomerId(userId)
-    setChangeCustomerError('')
-    try {
-      if (linkExistingToOrg && detailsData?.organization?.id) {
-        await window.api.users.update(userId, {
-          organization_id: detailsData.organization.id,
-          ticketId: idNum
-        })
-      }
-      await window.api.tickets.changeCustomer(idNum, userId)
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      setChangeCustomerModalOpen(false)
-    } catch (err: any) {
-      setChangeCustomerError(err.message || 'Ошибка изменения клиента')
-    } finally {
-      setChangeCustomerLoading(false)
-      setSelectingCustomerId(null)
-    }
-  }
-
-  const handleCreateCustomer = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newCustomerFirstname.trim() && !newCustomerLastname.trim()) {
-      setChangeCustomerError('Укажите имя или фамилию')
-      return
-    }
-    setChangeCustomerLoading(true)
-    setChangeCustomerError('')
-    try {
-      const payload: any = {
-        firstname: newCustomerFirstname.trim(),
-        lastname: newCustomerLastname.trim(),
-        email: newCustomerEmail.trim() || undefined,
-        phone: newCustomerPhone.trim() || undefined,
-        mobile: newCustomerMobile.trim() || undefined,
-        tg_id_for_notice: newCustomerTelegram.trim() || undefined,
-        organization_id: (linkToOrg && detailsData?.organization?.id) ? detailsData.organization.id : null
-      }
-      const createdUser = await window.api.users.create(payload)
-      await window.api.tickets.changeCustomer(idNum, createdUser.id)
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      setChangeCustomerModalOpen(false)
-    } catch (err: any) {
-      setChangeCustomerError(err.message || 'Ошибка создания клиента')
-    } finally {
-      setChangeCustomerLoading(false)
     }
   }
 
@@ -2624,221 +2543,12 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
         )}
 
         {changeCustomerModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4 max-h-[85vh]"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <User className="h-[18px] w-[18px] text-primary" />
-                  Смена клиента заявки
-                </h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setChangeCustomerModalOpen(false); setCustomerResults([]); setCustomerSearch(''); setChangeCustomerError('') }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div className="flex border-b border-border bg-muted/10 p-1 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => { setActiveCustomerTab('search'); setChangeCustomerError(''); }}
-                  className={cn(
-                    "flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors",
-                    activeCustomerTab === 'search'
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Поиск
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setActiveCustomerTab('create'); setChangeCustomerError(''); }}
-                  className={cn(
-                    "flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors",
-                    activeCustomerTab === 'create'
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Создать нового
-                </button>
-              </div>
-
-              {changeCustomerError && (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                  {changeCustomerError}
-                </div>
-              )}
-
-              {activeCustomerTab === 'search' ? (
-                <div className="flex flex-col gap-4 overflow-y-auto pr-1">
-                  <form onSubmit={handleCustomerSearch} className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={customerSearch}
-                        onChange={(e) => setCustomerSearch(e.target.value)}
-                        placeholder="Имя, email, телефон..."
-                        className="h-9 w-full rounded-md border border-border bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none"
-                      />
-                    </div>
-                    <Button type="submit" size="sm" disabled={customerSearchLoading} className="h-9">
-                      {customerSearchLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Найти'}
-                    </Button>
-                  </form>
-
-                  {detailsData?.organization && (
-                    <div className="flex items-center gap-2 mt-1 px-1">
-                      <input
-                        type="checkbox"
-                        id="linkExistingToOrg"
-                        checked={linkExistingToOrg}
-                        onChange={(e) => setLinkExistingToOrg(e.target.checked)}
-                        className="h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
-                      />
-                      <label htmlFor="linkExistingToOrg" className="text-xs text-muted-foreground select-none">
-                        Привязать выбранного клиента к организации «{detailsData.organization.name}»
-                      </label>
-                    </div>
-                  )}
-
-                  <div className="space-y-2 mt-2">
-                    {customerResults.map((u) => (
-                      <div
-                        key={u.id}
-                        onClick={() => {
-                          if (!changeCustomerLoading) handleChangeCustomer(u.id)
-                        }}
-                        className={cn(
-                          "flex items-center justify-between p-3 rounded-lg border border-border/60 bg-muted/10 hover:border-primary/50 hover:bg-muted/20 cursor-pointer transition-all duration-100 group",
-                          changeCustomerLoading && "pointer-events-none opacity-60"
-                        )}
-                      >
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">{u.name}</span>
-                          <span className="text-[10px] text-muted-foreground truncate">{u.email || 'Нет почты'}</span>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-[10px] shrink-0"
-                          disabled={changeCustomerLoading}
-                        >
-                          {changeCustomerLoading && selectingCustomerId === u.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            'Выбрать'
-                          )}
-                        </Button>
-                      </div>
-                    ))}
-                    {!customerSearchLoading && customerSearch && customerResults.length === 0 && (
-                      <div className="text-center py-6 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-                        Пользователи не найдены
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={handleCreateCustomer} className="flex flex-col gap-3 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-semibold text-muted-foreground">Имя</label>
-                      <input
-                        type="text"
-                        value={newCustomerFirstname}
-                        onChange={(e) => setNewCustomerFirstname(e.target.value)}
-                        className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                        required
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-semibold text-muted-foreground">Фамилия</label>
-                      <input
-                        type="text"
-                        value={newCustomerLastname}
-                        onChange={(e) => setNewCustomerLastname(e.target.value)}
-                        className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                        required
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Email</label>
-                    <input
-                      type="email"
-                      value={newCustomerEmail}
-                      onChange={(e) => setNewCustomerEmail(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-semibold text-muted-foreground">Телефон</label>
-                      <input
-                        type="text"
-                        value={newCustomerPhone}
-                        onChange={(e) => setNewCustomerPhone(e.target.value)}
-                        className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-semibold text-muted-foreground">Мобильный</label>
-                      <input
-                        type="text"
-                        value={newCustomerMobile}
-                        onChange={(e) => setNewCustomerMobile(e.target.value)}
-                        className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Telegram ID</label>
-                    <input
-                      type="text"
-                      value={newCustomerTelegram}
-                      onChange={(e) => setNewCustomerTelegram(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                    />
-                  </div>
-                  {detailsData?.organization && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <input
-                        type="checkbox"
-                        id="linkToOrg"
-                        checked={linkToOrg}
-                        onChange={(e) => setLinkToOrg(e.target.checked)}
-                        className="h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
-                      />
-                      <label htmlFor="linkToOrg" className="text-xs text-muted-foreground select-none">
-                        Привязать к организации «{detailsData.organization.name}»
-                      </label>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-3 mt-4 border-t border-border pt-3">
-                    <Button variant="outline" size="sm" type="button" onClick={() => setChangeCustomerModalOpen(false)} disabled={changeCustomerLoading}>
-                      Отмена
-                    </Button>
-                    <Button size="sm" type="submit" disabled={changeCustomerLoading}>
-                      {changeCustomerLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                      Создать и сменить
-                    </Button>
-                  </div>
-                </form>
-              )}
-            </motion.div>
-          </motion.div>
+          <ChangeCustomerModal
+            ticketId={idNum}
+            organization={detailsData?.organization}
+            onClose={() => setChangeCustomerModalOpen(false)}
+            onChanged={() => queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })}
+          />
         )}
 
         {editCustomerModalOpen && detailsData?.customer && (
