@@ -40,6 +40,7 @@ import { TicketExportModal } from '@/components/tickets/TicketExportModal'
 import { ArticleBody } from '@/components/tickets/ArticleBody'
 import { TicketHistoryModal } from '@/components/tickets/TicketHistoryModal'
 import { LinkOrganizationModal } from '@/components/tickets/LinkOrganizationModal'
+import { EditCustomerModal } from '@/components/tickets/EditCustomerModal'
 
 /** Everything needed to send a comment — and to send it again if it fails. */
 interface CommentSubmission {
@@ -538,83 +539,6 @@ export default function TicketDetailsPage() {
     }
   }
 
-  const [editFirstname, setEditFirstname] = useState('')
-  const [editLastname, setEditLastname] = useState('')
-  const [editEmail, setEditEmail] = useState('')
-  const [editPhone, setEditPhone] = useState('')
-  const [editMobile, setEditMobile] = useState('')
-  const [editTelegram, setEditTelegram] = useState('')
-  const [editAddress, setEditAddress] = useState('')
-  const [editOrgId, setEditOrgId] = useState<number | null>(null)
-  const [editCustomerLoading, setEditCustomerLoading] = useState(false)
-  const [editCustomerError, setEditCustomerError] = useState('')
-  const [orgSearchQuery, setOrgSearchQuery] = useState('')
-  const [orgSearchResults, setOrgSearchResults] = useState<any[]>([])
-  const [orgSearchLoading, setOrgSearchLoading] = useState(false)
-
-  useEffect(() => {
-    if (editCustomerModalOpen && detailsData?.customer) {
-      const c = detailsData.customer
-      setEditFirstname(c.firstname || '')
-      setEditLastname(c.lastname || '')
-      setEditEmail(c.email || '')
-      setEditPhone(c.phone || '')
-      setEditMobile(c.mobile || '')
-      setEditTelegram(c.telegram || c.tg_id_for_notice || '')
-      setEditAddress(c.address || '')
-      setEditOrgId(detailsData.organization?.id || null)
-      setOrgSearchQuery(detailsData.organization?.name || '')
-      setOrgSearchResults([])
-      setEditCustomerError('')
-    }
-  }, [editCustomerModalOpen, detailsData])
-
-  const handleOrgSearch = async (q: string) => {
-    setOrgSearchQuery(q)
-    if (!q.trim()) {
-      setOrgSearchResults([])
-      return
-    }
-    setOrgSearchLoading(true)
-    try {
-      const res = await window.api.organizations.list({ query: q, page: 1, perPage: 15 })
-      setOrgSearchResults(res || [])
-    } catch {
-    } finally {
-      setOrgSearchLoading(false)
-    }
-  }
-
-  const handleEditCustomerSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!detailsData?.customer) return
-    if (!editFirstname.trim() && !editLastname.trim()) {
-      setEditCustomerError('Укажите имя или фамилию')
-      return
-    }
-    setEditCustomerLoading(true)
-    setEditCustomerError('')
-    try {
-      const payload = {
-        firstname: editFirstname.trim(),
-        lastname: editLastname.trim(),
-        email: editEmail.trim() || null,
-        phone: editPhone.trim() || null,
-        mobile: editMobile.trim() || null,
-        tg_id_for_notice: editTelegram.trim() || null,
-        address: editAddress.trim() || null,
-        organization_id: editOrgId,
-        ticketId: idNum
-      }
-      await window.api.users.update(detailsData.customer.id, payload)
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      setEditCustomerModalOpen(false)
-    } catch (err: any) {
-      setEditCustomerError(err.message || 'Ошибка обновления профиля')
-    } finally {
-      setEditCustomerLoading(false)
-    }
-  }
 
   // The composer is cleared the moment the message is sent, so the payload has to
   // travel with the mutation instead of being read back from the state.
@@ -2916,161 +2840,14 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </motion.div>
         )}
 
-        {editCustomerModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4 max-h-[85vh]"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <User className="h-[18px] w-[18px] text-primary" />
-                  Редактирование профиля клиента
-                </h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditCustomerModalOpen(false); setEditCustomerError('') }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {editCustomerError && (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                  {editCustomerError}
-                </div>
-              )}
-
-              <form onSubmit={handleEditCustomerSubmit} className="flex flex-col gap-3 overflow-y-auto pr-1">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Имя</label>
-                    <input
-                      type="text"
-                      value={editFirstname}
-                      onChange={(e) => setEditFirstname(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Фамилия</label>
-                    <input
-                      type="text"
-                      value={editLastname}
-                      onChange={(e) => setEditLastname(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Email</label>
-                  <input
-                    type="email"
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Телефон</label>
-                    <input
-                      type="text"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Мобильный</label>
-                    <input
-                      type="text"
-                      value={editMobile}
-                      onChange={(e) => setEditMobile(e.target.value)}
-                      className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Telegram ID</label>
-                  <input
-                    type="text"
-                    value={editTelegram}
-                    onChange={(e) => setEditTelegram(e.target.value)}
-                    className="h-9 rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Адрес</label>
-                  <textarea
-                    value={editAddress}
-                    onChange={(e) => setEditAddress(e.target.value)}
-                    className="h-16 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground resize-none focus:border-primary/60 focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1 relative">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Организация</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={orgSearchQuery}
-                      onChange={(e) => handleOrgSearch(e.target.value)}
-                      placeholder="Поиск организации..."
-                      className="h-9 w-full rounded-md border border-border bg-muted/30 px-3 text-xs text-foreground focus:border-primary/60 focus:outline-none"
-                    />
-                    {orgSearchQuery && editOrgId && (
-                      <button
-                        type="button"
-                        onClick={() => { setEditOrgId(null); setOrgSearchQuery(''); }}
-                        className="absolute right-2 top-2 h-5 w-5 text-muted-foreground hover:text-foreground flex items-center justify-center rounded"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                  {orgSearchLoading && (
-                    <div className="absolute right-2 top-8">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    </div>
-                  )}
-                  {orgSearchResults.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-32 overflow-y-auto rounded-md border border-border bg-background shadow-md">
-                      {orgSearchResults.map((org) => (
-                        <div
-                          key={org.id}
-                          onClick={() => {
-                            setEditOrgId(org.id)
-                            setOrgSearchQuery(org.name)
-                            setOrgSearchResults([])
-                          }}
-                          className="px-3 py-2 text-xs hover:bg-accent hover:text-accent-foreground cursor-pointer rounded-sm"
-                        >
-                          {org.name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3 mt-4 border-t border-border pt-3">
-                  <Button variant="outline" size="sm" type="button" onClick={() => setEditCustomerModalOpen(false)} disabled={editCustomerLoading}>
-                    Отмена
-                  </Button>
-                  <Button size="sm" type="submit" disabled={editCustomerLoading}>
-                    {editCustomerLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                    Сохранить
-                  </Button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
+        {editCustomerModalOpen && detailsData?.customer && (
+          <EditCustomerModal
+            customer={detailsData.customer}
+            organization={detailsData.organization}
+            ticketId={idNum}
+            onClose={() => setEditCustomerModalOpen(false)}
+            onSaved={() => queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })}
+          />
         )}
 
         {linkOrgModalOpen && detailsData?.customer && (
