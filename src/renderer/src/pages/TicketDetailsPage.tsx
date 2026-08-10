@@ -34,6 +34,7 @@ import {
   type ViewerItem
 } from '@/lib/ticketFormat'
 import { readFileAsDataUrl, dataUrlPayload, getUserDisplayName } from '@/lib/utils'
+import { clearCommentDraft, readCommentDraft, writeCommentDraft } from '@/lib/commentDrafts'
 import { CustomToggle, CustomSelect, CustomMultiSelect, CustomDateTimePicker } from '@/components/ui/custom-controls'
 import { AttachmentTile, AttachmentPreviewCard, MediaViewer, MiniAudioPlayer } from '@/components/tickets/TicketAttachments'
 import { TicketExportModal } from '@/components/tickets/TicketExportModal'
@@ -130,7 +131,7 @@ export default function TicketDetailsPage() {
   const [isOwnerDropdownOpen, setIsOwnerDropdownOpen] = useState(false)
   const [ownerSearchQuery, setOwnerSearchQuery] = useState('')
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
-  const [commentBody, setCommentBody] = useState('')
+  const [commentBody, setCommentBody] = useState(() => readCommentDraft(idNum))
   const [commentAttachments, setCommentAttachments] = useState<ComposerAttachment[]>([])
   const [commentInternal, setCommentInternal] = useState(false)
   // The message shown in the thread while it is on its way to Zammad.
@@ -389,6 +390,12 @@ export default function TicketDetailsPage() {
     })
   }, [pendingComment?.uploadId])
 
+  // Saved with a delay so every keystroke does not hit the disk.
+  useEffect(() => {
+    const timer = window.setTimeout(() => writeCommentDraft(idNum, commentBody), 400)
+    return () => window.clearTimeout(timer)
+  }, [idNum, commentBody])
+
   const sendComment = (submission: CommentSubmission) => {
     // The dialog has done its job once the time is entered — the message itself
     // shows what happens next, and waiting here just froze the window.
@@ -402,6 +409,7 @@ export default function TicketDetailsPage() {
       setUploadProgress(null)
       setCommentBody('')
       setCommentAttachments([])
+      clearCommentDraft(idNum)
     }
     addCommentMutation.mutate({ ...submission, uploadId })
   }
