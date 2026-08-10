@@ -210,6 +210,11 @@ export function getTicketTypeBadgeClass(typeId?: string | null, typeName?: strin
   return 'bg-muted/40 text-muted-foreground border border-border/40'
 }
 
+/** Points come in halves, and 1.5 must read as "1,5", not "1.5" or "1". */
+export function formatScore(value: number): string {
+  return value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+}
+
 export function formatTicketDate(raw: string): string {
   if (!raw) return '—'
   try {
