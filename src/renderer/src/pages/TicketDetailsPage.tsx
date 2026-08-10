@@ -3679,16 +3679,14 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 {canEditScore ? (
                   <div className="flex items-center gap-1">
                     <Award className="h-3.5 w-3.5 shrink-0 text-yellow-500" />
-                    <select
-                      value={scoreValue ?? ''}
-                      disabled={scoreSaving}
-                      onChange={event => handleScoreChange(event.target.value)}
-                      className="min-w-0 flex-1 rounded border border-border bg-transparent px-1 py-0.5 text-xs font-semibold text-foreground outline-none focus:border-primary/60 disabled:opacity-60"
-                    >
-                      {scoreOptions.map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </select>
+                    <div className="min-w-0 flex-1">
+                      <CustomSelect
+                        value={scoreValue ?? ''}
+                        options={scoreOptions.map(option => ({ id: option.value, name: option.label }))}
+                        onChange={option => handleScoreChange(String(option.id))}
+                        placeholder="Без оценки"
+                      />
+                    </div>
                     {scoreSaving && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />}
                   </div>
                 ) : (

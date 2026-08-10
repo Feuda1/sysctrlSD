@@ -741,7 +741,7 @@ function fetchTicketHtml(ticketId: number): Promise<string> {
           throw new Error(`Ошибка загрузки деталей заявки: ${detailResp.status}`)
         }
         const html = await detailResp.text()
-        ticketHtmlCache.set(ticketId, { html, timestamp: Date.now() })
+        ticketHtmlCache.set(ticketId, { html, timestamp: Date.now() })
         return html
       } finally {
         ticketHtmlPromises.delete(ticketId)
@@ -916,6 +916,9 @@ function extractSelectedOptions(html: string, selectId: string): string[] {
  * set them gets a normal select (id="ticket_Score"), everyone else gets the same
  * select rendered `disabled`.
  */
+// One line per app run: enough to tell a missing right from a parsing miss.
+let scoreParseLogged = false
+
 function parseClientsScoreControl(html: string): {
   options: { value: string; label: string }[]
   value: string | null
@@ -924,10 +927,13 @@ function parseClientsScoreControl(html: string): {
   const empty = { options: [] as { value: string; label: string }[], value: null, canEdit: false }
   if (!html) return empty
 
-  const labelIndex = html.search(/>\s*БАЛЛЫ ЗА ЗАЯВКУ\s*</i)
-  if (labelIndex < 0) return empty
+  // Case-sensitive and anchored to a <label>: the ticket history table also
+  // contains the words "Баллы за заявку", and matching that row picked up
+  // whatever select came next — the article type list.
+  const labelMatch = /<label\b[^>]*>\s*БАЛЛЫ ЗА ЗАЯВКУ\s*<\/label>/.exec(html)
+  if (!labelMatch) return empty
 
-  const selectMatch = html.slice(labelIndex).match(/<select\b([^>]*)>([\s\S]*?)<\/select>/i)
+  const selectMatch = html.slice(labelMatch.index).match(/<select\b([^>]*)>([\s\S]*?)<\/select>/i)
   if (!selectMatch) return empty
 
   const attrs = selectMatch[1]
@@ -940,6 +946,15 @@ function parseClientsScoreControl(html: string): {
     const label = stripHtml(option[2]).trim() || optionValue
     options.push({ value: optionValue, label })
     if (/\bselected\b/i.test(option[1])) value = optionValue
+  }
+
+  // Points are numeric codes like "00", "00.5", "01.0". Anything else means the
+  // select found is not the score one, and showing it would be worse than
+  // showing nothing.
+  const looksLikeScores = options.length > 0 && options.every(option => /^\d{1,2}(\.\d)?$/.test(option.value))
+  if (!looksLikeScores) {
+    logger.warn('Список баллов на странице clients не распознан:', options.slice(0, 4))
+    return empty
   }
 
   return { options, value, canEdit: !/\bdisabled\b/i.test(attrs) }
@@ -3078,6 +3093,14 @@ async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ti
   ;(normalized as any).scoreOptions = clientsMeta.scoreOptions ?? []
   ;(normalized as any).scoreValue = clientsMeta.scoreValue ?? null
   ;(normalized as any).canEditScore = clientsMeta.canEditScore === true
+  if (!scoreParseLogged) {
+    scoreParseLogged = true
+    logger.info('Баллы со страницы clients:', {
+      options: clientsMeta.scoreOptions?.length ?? 0,
+      value: clientsMeta.scoreValue,
+      canEdit: clientsMeta.canEditScore === true
+    })
+  }
   if (!normalized.clientNumber) {
     try {
       const idx = await fetchClientsTicketIndex()
@@ -3831,7 +3854,7 @@ export function setupTicketsIpc(): void {
     if (hasToken) {
       try {
         const token = getToken()
-        await loadMeta(token)
+        await loadMeta(token)
         const myUserId = await getUserId()
         if (myUserId) {
           preloadTicketsCache(myUserId, token)
