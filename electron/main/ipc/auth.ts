@@ -318,6 +318,22 @@ export function writeStored(data: StoredData): void {
   }
 }
 
+// A mere mention of /Account/Login is not enough to call a page the login page —
+// the profile page links to account actions too, and that false positive used to
+// fail the login of perfectly fine accounts. Only a real login form counts.
+function isClientsLoginPage(html: string): boolean {
+  if (!html) return false
+  if (/<form[^>]+action="[^"]*\/Account\/Login/i.test(html)) return true
+  return /name="password"/i.test(html) && /\/Account\/Login/i.test(html)
+}
+
+function clientsValidationMessage(html: string): string {
+  const match =
+    html.match(/<div[^>]*class="[^"]*validation-summary-errors[^"]*"[^>]*>([\s\S]*?)<\/div>/i) ||
+    html.match(/<span[^>]*class="[^"]*text-danger[^"]*"[^>]*>([\s\S]*?)<\/span>/i)
+  return match ? stripTags(match[1]) : ''
+}
+
 export async function loginWrapper(email: string, password: string): Promise<AppUser> {
   const ses = wrapperSession()
 
@@ -349,19 +365,67 @@ export async function loginWrapper(email: string, password: string): Promise<App
     }).toString()
   } as any)
 
-  if (loginResp.url.includes('/Account/Login') || loginResp.url.includes('returnUrl')) {
-    throw new Error('Неверный логин или пароль')
+  // net.fetch does not always fill in the final url, so the answer itself is what
+  // decides: clients re-renders the login form when the credentials are refused.
+  const loginHtml = await loginResp.text()
+  if (loginResp.url.includes('/Account/Login') || loginResp.url.includes('returnUrl') || isClientsLoginPage(loginHtml)) {
+    const validation = clientsValidationMessage(loginHtml)
+    throw new Error(validation || 'Неверный логин или пароль')
   }
 
   logger.info('Wrapper login successful, landed on:', loginResp.url)
   logger.info('Wrapper login OK, fetching Zammad API key from profile...')
 
-  const profileResp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, { session: ses } as any)
-  const profileHtml = await profileResp.text()
-
-  if (profileResp.url.includes('/Account/Login') || profileHtml.includes('/Account/Login')) {
-    throw new Error('Сессия не была создана. Проверьте правильность системного времени.')
+  // The cookie is the actual proof that a session exists; the page contents only
+  // tell us whether this particular request was answered with it.
+  const identityCookieSet = async (): Promise<boolean> => {
+    try {
+      const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
+      return cookies.some(cookie => cookie.name === '.AspNetCore.Identity.Application')
+    } catch {
+      return false
+    }
   }
+
+  if (!await identityCookieSet()) {
+    logger.error('Кука сессии clients не установлена после входа')
+    throw new Error(
+      'Сессия не была создана: clients не выдал куку входа. ' +
+      'Проверьте системные дату и время, а затем повторите вход.'
+    )
+  }
+
+  const loadProfile = async () => {
+    const resp = await net.fetch(`${WRAPPER_BASE}/Users/Profile`, {
+      session: ses,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    } as any)
+    return { url: String(resp.url ?? ''), html: await resp.text() }
+  }
+
+  let profile = await loadProfile()
+
+  if (profile.url.includes('/Account/Login') || isClientsLoginPage(profile.html)) {
+    logger.warn('Профиль clients вернул страницу входа, повторяю запрос', {
+      url: profile.url,
+      length: profile.html.length
+    })
+    profile = await loadProfile()
+  }
+
+  if (profile.url.includes('/Account/Login') || isClientsLoginPage(profile.html)) {
+    logger.error('Профиль clients недоступен после входа', {
+      url: profile.url,
+      length: profile.html.length,
+      snippet: profile.html.slice(0, 300)
+    })
+    throw new Error(
+      'Вход выполнен, но clients не отдаёт профиль. ' +
+      'Повторите попытку; если ошибка остаётся — проверьте доступ к clients.denvic.ru и системное время.'
+    )
+  }
+
+  const profileHtml = profile.html
 
   const keyMatch =
     profileHtml.match(/ZammadApiKey[^>]*value="([^"]{10,})"/) ||
@@ -382,10 +446,17 @@ export async function loginWrapper(email: string, password: string): Promise<App
   }
 
   const token = zammadToken ?? readStored().zammadToken
-  if (token) {
-    const zUser = await fetchZammadUser(token)
-    if (zUser) return zUser
+  if (!token) {
+    // Without the key nothing in the app works, and failing here says why
+    // instead of letting every later request break on its own.
+    throw new Error(
+      'В профиле clients не найден API-ключ Zammad. ' +
+      'Откройте clients.denvic.ru → Профиль и убедитесь, что ключ выдан.'
+    )
   }
+
+  const zUser = await fetchZammadUser(token)
+  if (zUser) return zUser
 
   const login = email.split('@')[0]
   return { email, login, firstname: login, lastname: '' }
