@@ -884,30 +884,42 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   {showStateSuggestion && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] text-muted-foreground">Статус заявки не менялся</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {stateOptions.map(state => {
-                          const color = filtersData?.stateColors?.[Number(state.id)]
-                          const active = Number(state.id) === commentStateId
-                          return (
-                            <button
-                              key={state.id}
-                              type="button"
-                              onClick={() => setCommentStateId(Number(state.id))}
-                              className={cn(
-                                'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
-                                active
-                                  ? 'border-primary/50 bg-primary/10 text-primary'
-                                  : !color && getStateBadgeClass(state.name),
-                                !active && !color && 'opacity-80 hover:opacity-100',
-                                !active && color && 'border-border/60 hover:bg-accent/40'
-                              )}
-                              style={!active && color ? { color, borderColor: `${color}55`, backgroundColor: `${color}12` } : undefined}
-                            >
-                              {state.name}
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <CustomSelect
+                        value={commentStateId}
+                        options={stateOptions}
+                        onChange={state => setCommentStateId(Number(state.id))}
+                        placeholder={ticket.state.name || 'Выберите состояние'}
+                        renderValue={state => state ? (
+                          <span
+                            className={cn(
+                              'inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-medium',
+                              !filtersData?.stateColors?.[Number(state.id)] && getStateBadgeClass(state.name)
+                            )}
+                            style={filtersData?.stateColors?.[Number(state.id)] ? {
+                              backgroundColor: `${filtersData.stateColors[Number(state.id)]}15`,
+                              color: filtersData.stateColors[Number(state.id)],
+                              borderColor: `${filtersData.stateColors[Number(state.id)]}30`
+                            } : undefined}
+                          >
+                            <span className="truncate">{state.name}</span>
+                          </span>
+                        ) : <span className="text-muted-foreground">Выберите состояние</span>}
+                        renderOption={state => (
+                          <span
+                            className={cn(
+                              'inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
+                              !filtersData?.stateColors?.[Number(state.id)] && getStateBadgeClass(state.name)
+                            )}
+                            style={filtersData?.stateColors?.[Number(state.id)] ? {
+                              backgroundColor: `${filtersData.stateColors[Number(state.id)]}15`,
+                              color: filtersData.stateColors[Number(state.id)],
+                              borderColor: `${filtersData.stateColors[Number(state.id)]}30`
+                            } : undefined}
+                          >
+                            <span className="truncate">{state.name}</span>
+                          </span>
+                        )}
+                      />
                     </div>
                   )}
 
