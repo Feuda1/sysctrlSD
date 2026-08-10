@@ -85,6 +85,8 @@ function PendingStatus({ failed, bytes, progress }: { failed: boolean; bytes: nu
 
 interface PendingComment extends CommentSubmission {
   failed: boolean
+  /** Why it did not go through — shown right in the message. */
+  error?: string
   at: string
   /** Set only when attachments ride along: they are what can be followed and cancelled. */
   uploadId?: string
@@ -134,6 +136,7 @@ export default function TicketDetailsPage() {
   // The message shown in the thread while it is on its way to Zammad.
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null)
   const [uploadProgress, setUploadProgress] = useState<{ sent: number; total: number } | null>(null)
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [commentArticleType, setCommentArticleType] = useState('')
   const [commentStateId, setCommentStateId] = useState<number | null>(null)
   const [ticketTypeId, setTicketTypeId] = useState<string | null>(null)
@@ -369,10 +372,11 @@ export default function TicketDetailsPage() {
     onError: (error, variables) => {
       // The text is never thrown away: the message stays in the thread marked as
       // unsent, with a button to send it again.
+      const reason = error instanceof Error ? error.message : 'Не удалось отправить комментарий'
       if (variables.includeArticle) {
-        setPendingComment(previous => previous ? { ...previous, failed: true } : previous)
+        setPendingComment(previous => previous ? { ...previous, failed: true, error: reason } : previous)
       }
-      setCommentError(error instanceof Error ? error.message : 'Не удалось отправить комментарий')
+      setCommentError(reason)
     }
   })
 
@@ -408,7 +412,7 @@ export default function TicketDetailsPage() {
 
   const retryPendingComment = () => {
     if (!pendingComment) return
-    setPendingComment({ ...pendingComment, failed: false })
+    setPendingComment({ ...pendingComment, failed: false, error: undefined })
     setCommentError('')
     addCommentMutation.mutate({
       draft: pendingComment.draft,
@@ -522,6 +526,29 @@ export default function TicketDetailsPage() {
     if (files.length === 0) return
     event.preventDefault()
     insertCommentText(event.clipboardData.getData('text/plain'))
+    void addComposerFiles(files)
+  }
+
+  // Dragging a file from Explorer or a mail client is the most common gesture in
+  // support work; until now the only way in was the file dialog.
+  const handleComposerDragOver = (event: React.DragEvent) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setIsDraggingFiles(true)
+  }
+
+  const handleComposerDragLeave = (event: React.DragEvent) => {
+    // Leaving for a child element still fires dragleave; only the real exit counts.
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return
+    setIsDraggingFiles(false)
+  }
+
+  const handleComposerDrop = (event: React.DragEvent) => {
+    const files = Array.from(event.dataTransfer.files)
+    setIsDraggingFiles(false)
+    if (files.length === 0) return
+    event.preventDefault()
     void addComposerFiles(files)
   }
 
@@ -1125,7 +1152,20 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </div>
 
           {(detailsData?.ticket?.subTickets && detailsData.ticket.subTickets.length > 0 || true) && (
-            <div className="bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4">
+            <div
+            onDragOver={handleComposerDragOver}
+            onDragLeave={handleComposerDragLeave}
+            onDrop={handleComposerDrop}
+            className={cn(
+              "relative bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4 transition-colors",
+              isDraggingFiles && "border-primary/60 bg-primary/5"
+            )}
+          >
+            {isDraggingFiles && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-card/80 text-xs font-medium text-primary">
+                Отпустите файлы, чтобы прикрепить
+              </div>
+            )}
               <div className="flex items-center justify-between">
                 <button
                   type="button"
@@ -1329,7 +1369,11 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                         )}
 
                         {isPending && pendingComment?.failed && (
-                          <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
+                          <div className="flex flex-col gap-2 border-t border-destructive/30 pt-2.5">
+                            {pendingComment.error && (
+                              <p className="text-[11px] leading-snug text-destructive">{pendingComment.error}</p>
+                            )}
+                            <div className="flex items-center gap-2">
                             <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
                               <RefreshCw className="h-3 w-3" />
                               Повторить
@@ -1337,6 +1381,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                             <Button size="sm" variant="ghost" onClick={discardPendingComment} className="h-7 text-xs text-muted-foreground">
                               Вернуть в поле ввода
                             </Button>
+                            </div>
                           </div>
                         )}
 
