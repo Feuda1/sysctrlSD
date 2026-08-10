@@ -541,10 +541,12 @@ export default function TicketDetailsPage() {
   // Dragging a file from Explorer or a mail client is the most common gesture in
   // support work; until now the only way in was the file dialog.
   const handleComposerDragOver = (event: React.DragEvent) => {
-    if (!Array.from(event.dataTransfer.types).includes('Files')) return
+    // preventDefault unconditionally: without it the browser refuses the drop and
+    // the drop event never fires at all. The types list is not reliable enough to
+    // gate on — on Windows it can come back empty while a file is being dragged.
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
-    setIsDraggingFiles(true)
+    if (!isDraggingFiles) setIsDraggingFiles(true)
   }
 
   const handleComposerDragLeave = (event: React.DragEvent) => {
@@ -554,11 +556,12 @@ export default function TicketDetailsPage() {
   }
 
   const handleComposerDrop = (event: React.DragEvent) => {
-    const files = Array.from(event.dataTransfer.files)
-    setIsDraggingFiles(false)
-    if (files.length === 0) return
+    // Always taken over: a file dropped on the app would otherwise make the
+    // window navigate to it and the ticket would disappear from the screen.
     event.preventDefault()
-    void addComposerFiles(files)
+    setIsDraggingFiles(false)
+    const files = Array.from(event.dataTransfer.files)
+    if (files.length > 0) void addComposerFiles(files)
   }
 
   const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
