@@ -62,7 +62,7 @@ interface CommentSubmission {
 const PENDING_ARTICLE_ID = -1
 
 /** Stands in for the timestamp until the message is delivered. */
-function PendingStatus({ failed, bytes }: { failed: boolean; bytes: number }) {
+function PendingStatus({ failed, bytes, progress }: { failed: boolean; bytes: number; progress: { sent: number; total: number } | null }) {
   if (failed) {
     return (
       <span className="flex items-center gap-1 text-destructive">
@@ -76,7 +76,9 @@ function PendingStatus({ failed, bytes }: { failed: boolean; bytes: number }) {
       <Loader2 className="h-3 w-3 animate-spin" />
       {/* Attachments travel inside the same request, so their size explains the
           wait — there is no per-file progress to show. */}
-      {bytes > 0 ? `Отправляется… ${formatAttachmentSize(bytes)}` : 'Отправляется…'}
+      {progress
+        ? `Отправляется… ${formatAttachmentSize(progress.sent)} из ${formatAttachmentSize(progress.total)}`
+        : bytes > 0 ? `Отправляется… ${formatAttachmentSize(bytes)}` : 'Отправляется…'}
     </span>
   )
 }
@@ -84,6 +86,8 @@ function PendingStatus({ failed, bytes }: { failed: boolean; bytes: number }) {
 interface PendingComment extends CommentSubmission {
   failed: boolean
   at: string
+  /** Set only when attachments ride along: they are what can be followed and cancelled. */
+  uploadId?: string
 }
 
 interface Member {
@@ -129,6 +133,7 @@ export default function TicketDetailsPage() {
   const [commentInternal, setCommentInternal] = useState(false)
   // The message shown in the thread while it is on its way to Zammad.
   const [pendingComment, setPendingComment] = useState<PendingComment | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<{ sent: number; total: number } | null>(null)
   const [commentArticleType, setCommentArticleType] = useState('')
   const [commentStateId, setCommentStateId] = useState<number | null>(null)
   const [ticketTypeId, setTicketTypeId] = useState<string | null>(null)
@@ -324,7 +329,7 @@ export default function TicketDetailsPage() {
   }, [articles, pendingComment])
 
   const addCommentMutation = useMutation({
-    mutationFn: async ({ draft, timeUnit, includeArticle }: CommentSubmission) => {
+    mutationFn: async ({ draft, timeUnit, includeArticle, uploadId }: CommentSubmission & { uploadId?: string }) => {
       const attachments = includeArticle ? draft.attachments.map(attachment => ({
         filename: attachment.filename,
         mimeType: attachment.mimeType,
@@ -344,7 +349,8 @@ export default function TicketDetailsPage() {
         tagIds,
         pendingTime: commentPendingTime ? new Date(commentPendingTime).toISOString() : null,
         timeUnit,
-        attachments
+        attachments,
+        uploadId
       })
     },
     onSuccess: async (_data, variables) => {
@@ -374,13 +380,30 @@ export default function TicketDetailsPage() {
     }
   })
 
+  // Прогресс приходит из main по мере того, как байты уходят в сокет.
+  useEffect(() => {
+    return window.api.tickets.onUploadProgress(progress => {
+      if (progress.uploadId === pendingComment?.uploadId) {
+        setUploadProgress({ sent: progress.sent, total: progress.total })
+      }
+    })
+  }, [pendingComment?.uploadId])
+
   const sendComment = (submission: CommentSubmission) => {
+    const uploadId = submission.draft.attachments.length > 0
+      ? `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      : undefined
     if (submission.includeArticle && (submission.draft.body.trim() || submission.draft.attachments.length > 0)) {
-      setPendingComment({ ...submission, failed: false, at: new Date().toISOString() })
+      setPendingComment({ ...submission, uploadId, failed: false, at: new Date().toISOString() })
+      setUploadProgress(null)
       setCommentBody('')
       setCommentAttachments([])
     }
-    addCommentMutation.mutate(submission)
+    addCommentMutation.mutate({ ...submission, uploadId })
+  }
+
+  const cancelUpload = () => {
+    if (pendingComment?.uploadId) window.api.tickets.cancelUpload(pendingComment.uploadId)
   }
 
   const retryPendingComment = () => {
@@ -1290,11 +1313,20 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-zinc-550 dark:text-zinc-400 font-mono">
                             <ChannelIcon channel={isNote ? 'note' : article.type} />
-                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} /> : formatTicketDate(article.createdAt)}</span>
+                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
                           </div>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />
+
+                        {isPending && !pendingComment?.failed && pendingComment?.uploadId && (
+                          <div className="border-t border-border/40 pt-2.5">
+                            <Button size="sm" variant="ghost" onClick={cancelUpload} className="h-7 gap-1.5 text-xs text-muted-foreground">
+                              <X className="h-3 w-3" />
+                              Отменить отправку
+                            </Button>
+                          </div>
+                        )}
 
                         {isPending && pendingComment?.failed && (
                           <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
@@ -1378,7 +1410,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                               {isNote && <span className="text-amber-500 dark:text-amber-400 font-semibold ml-1">(Внутренняя заметка)</span>}
                             </span>
                           </div>
-                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} /> : formatTicketDate(article.createdAt)}</span>
+                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />

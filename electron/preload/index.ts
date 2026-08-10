@@ -243,9 +243,16 @@ const api = {
       pendingTime?: string | null
       timeUnit?: number | null
       attachments?: { filename: string; data: string; mimeType: string }[]
+      uploadId?: string
     }) => invoke('tickets:addComment', params),
     getAttachment: (ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> =>
       invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
+    cancelUpload: (uploadId: string): Promise<boolean> => invoke('tickets:cancelUpload', uploadId),
+    onUploadProgress: (callback: (progress: { uploadId: string; sent: number; total: number }) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, progress: { uploadId: string; sent: number; total: number }) => callback(progress)
+      ipcRenderer.on('tickets:upload-progress', handler)
+      return () => { ipcRenderer.removeListener('tickets:upload-progress', handler) }
+    },
     setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean): Promise<{ ok: true }> =>
       invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
     exportTicket: (

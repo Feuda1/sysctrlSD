@@ -21,6 +21,7 @@ import {
   CLIENTS_CREATE_FORM_RE,
 } from '../clients/parse'
 import { dateRangeQuery, isInDateRange, zammadSearchValue } from '../zammad/query'
+import { cancelUpload, putWithProgress } from '../zammad/upload'
 import {
   getAvailableSounds,
   readNotificationHistory,
@@ -141,6 +142,8 @@ export interface AddTicketCommentParams {
     data: string
     mimeType: string
   }[]
+  /** Lets the renderer follow and cancel an upload that carries attachments. */
+  uploadId?: string
 }
 
 export interface Conditions {
@@ -3339,16 +3342,32 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
     throw new Error('Комментарий не может быть пустым')
   }
 
-  const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${params.ticketId}`, {
-    method: 'PUT',
-    headers: zHeaders(token),
-    body: JSON.stringify(payload)
-  })
+  // With attachments the request is streamed so it can be followed and
+  // cancelled; without them it is a small JSON body and the plain path is fine.
+  const serialized = Buffer.from(JSON.stringify(payload), 'utf8')
+  if (attachments.length > 0) {
+    const uploaded = await putWithProgress({
+      url: `${ZAMMAD_BASE}/api/v1/tickets/${params.ticketId}`,
+      headers: zHeaders(token) as Record<string, string>,
+      body: serialized,
+      uploadId: params.uploadId
+    })
+    if (!uploaded.ok) {
+      logger.error('Ошибка отправки комментария:', { status: uploaded.status, text: uploaded.body.slice(0, 500) })
+      throw new Error(describeHttpError(uploaded.status, uploaded.body, 'Не удалось отправить комментарий'))
+    }
+  } else {
+    const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${params.ticketId}`, {
+      method: 'PUT',
+      headers: zHeaders(token),
+      body: serialized
+    })
 
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    logger.error('Ошибка отправки комментария:', { status: resp.status, text: text.slice(0, 500) })
-    throw new Error(describeHttpError(resp.status, text, 'Не удалось отправить комментарий'))
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      logger.error('Ошибка отправки комментария:', { status: resp.status, text: text.slice(0, 500) })
+      throw new Error(describeHttpError(resp.status, text, 'Не удалось отправить комментарий'))
+    }
   }
 
   await markTicketSelfUpdated(params.ticketId)
@@ -3783,6 +3802,10 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:export', async (_event, ticketId: number, options: TicketExportOptions) => {
     return exportTicket(ticketId, options)
+  })
+
+  ipcMain.handle('tickets:cancelUpload', async (_event, uploadId: string) => {
+    return cancelUpload(uploadId)
   })
 
   ipcMain.handle('tickets:setScore', async (_event, ticketId: number, score: string, ignoreClientsRight?: boolean) => {
