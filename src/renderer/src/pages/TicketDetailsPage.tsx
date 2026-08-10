@@ -2738,21 +2738,24 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   <span className="text-[10px] font-bold uppercase tracking-wide text-primary">Клиент</span>
                 </div>
                 <div className="flex flex-col items-start">
-                  <span className="text-xl font-bold leading-7 text-foreground">{customerName}</span>
+                  <span data-selectable className="text-xl font-bold leading-7 text-foreground">{customerName}</span>
                   {organization ? (
                     <button
                       type="button"
                       onClick={() => {
+                        // Selecting the name inside a button still ends in a click;
+                        // opening the organization then would throw the selection away.
+                        if (window.getSelection()?.toString().trim()) return
                         setSelectedOrgId(organization.id)
                         setActiveTab('info')
                       }}
                       className="text-sm font-medium text-primary hover:underline text-left flex items-center gap-1 group/org transition-colors"
                     >
-                      <span>{organizationName}</span>
+                      <span data-selectable className="cursor-text">{organizationName}</span>
                       <ExternalLink className="h-3.5 w-3.5 opacity-0 group-hover/org:opacity-100 transition-opacity" />
                     </button>
                   ) : (
-                    <span className="text-sm font-medium text-muted-foreground">{organizationName}</span>
+                    <span data-selectable className="text-sm font-medium text-muted-foreground">{organizationName}</span>
                   )}
                 </div>
                 {organization?.note && (
