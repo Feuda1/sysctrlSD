@@ -219,6 +219,11 @@ const api = {
     }) => ipcRenderer.invoke('tickets:addComment', params),
     getAttachment: (ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> =>
       ipcRenderer.invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
+    exportTicket: (
+      ticketId: number,
+      options: { text: boolean; images: boolean; files: boolean }
+    ): Promise<{ ok: boolean; canceled?: boolean; path?: string; savedImages?: number; savedFiles?: number }> =>
+      ipcRenderer.invoke('tickets:export', ticketId, options),
     getHistory: (ticketId: number): Promise<any[]> =>
       ipcRenderer.invoke('tickets:getHistory', ticketId),
     searchForMerge: (query: string): Promise<any[]> =>

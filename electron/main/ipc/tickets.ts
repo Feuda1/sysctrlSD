@@ -1,8 +1,9 @@
-import { ipcMain, net, app, session } from 'electron'
+import { ipcMain, net, app, session, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import logger from 'electron-log/main'
 import { isWrapperSessionAlive, loginWrapper, readStored, writeStored, setZammadTokenCache, markClientsSessionAlive, markClientsSessionDead } from './auth'
+import { exportTicket, type TicketExportOptions } from '../ticketExport'
 import type { NotificationSettings, NotificationItem } from '../../preload/index'
 
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
@@ -3149,6 +3150,13 @@ async function fetchTicketArticles(ticketId: number): Promise<any[]> {
   return data
 }
 
+// Re-exported under explicit names for the ticket export, which needs the same
+// data the details page shows.
+export const fetchTicketDetailsForExport = (ticketId: number) => fetchTicketDetails(ticketId)
+export const fetchTicketArticlesForExport = (ticketId: number) => fetchTicketArticles(ticketId)
+export const fetchTicketAttachmentForExport = (ticketId: number, articleId: number, attachmentId: number) =>
+  fetchTicketAttachment(ticketId, articleId, attachmentId)
+
 async function fetchTicketAttachment(ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> {
   const token = getToken()
   const h = zHeaders(token)
@@ -3846,6 +3854,10 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:getAttachment', async (_event, ticketId: number, articleId: number, attachmentId: number) => {
     return fetchTicketAttachment(ticketId, articleId, attachmentId)
+  })
+
+  ipcMain.handle('tickets:export', async (event, ticketId: number, options: TicketExportOptions) => {
+    return exportTicket(BrowserWindow.fromWebContents(event.sender), ticketId, options)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {

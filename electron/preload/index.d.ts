@@ -78,6 +78,10 @@ declare global {
           attachments?: { filename: string; data: string; mimeType: string }[]
         }) => Promise<any>
         getAttachment: (ticketId: number, articleId: number, attachmentId: number) => Promise<{ dataUrl: string; contentType: string }>
+        exportTicket: (
+          ticketId: number,
+          options: { text: boolean; images: boolean; files: boolean }
+        ) => Promise<{ ok: boolean; canceled?: boolean; path?: string; savedImages?: number; savedFiles?: number }>
         getHistory: (ticketId: number) => Promise<any[]>
         searchForMerge: (query: string) => Promise<any[]>
         merge: (sourceTicketId: number, targetTicketNumber: string) => Promise<{ ok: boolean }>
