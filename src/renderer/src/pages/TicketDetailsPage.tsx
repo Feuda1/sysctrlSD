@@ -1802,6 +1802,10 @@ export default function TicketDetailsPage() {
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [scoreSaving, setScoreSaving] = useState(false)
   const [scoreError, setScoreError] = useState('')
+  // Shown while the write and the refetch are in flight: clients answers with a
+  // noticeable delay, and without this the field sits on the old value as if the
+  // click did nothing.
+  const [pendingScore, setPendingScore] = useState<string | null>(null)
   const [createSubTicketLoading, setCreateSubTicketLoading] = useState(false)
   const [createSubTicketError, setCreateSubTicketError] = useState('')
   const [subTitle, setSubTitle] = useState('')
@@ -1830,6 +1834,7 @@ export default function TicketDetailsPage() {
   const afterCommentSubmitAction = useUIStore(s => s.afterCommentSubmitAction)
   const hideScrollDownArrow = useUIStore(s => s.hideScrollDownArrow)
   const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
+  const allowScoreWithoutClientsRight = useUIStore(s => s.allowScoreWithoutClientsRight)
   const currentUser = useAuthStore(s => s.user)
   const closeTab = useTabsStore(s => s.closeTab)
   const activeTabId = useTabsStore(s => s.activeTabId)
@@ -2017,16 +2022,27 @@ export default function TicketDetailsPage() {
   // clients ticket page — the app never decides on its own who may award points.
   const scoreOptions: { value: string; label: string }[] = (detailsData?.ticket as any)?.scoreOptions ?? []
   const scoreValue: string | null = (detailsData?.ticket as any)?.scoreValue ?? null
-  const canEditScore: boolean = ((detailsData?.ticket as any)?.canEditScore === true) && scoreOptions.length > 0
+  const clientsAllowsScore: boolean = (detailsData?.ticket as any)?.canEditScore === true
+  const canEditScore: boolean = (clientsAllowsScore || allowScoreWithoutClientsRight) && scoreOptions.length > 0
+
+  // The pending value stops being needed as soon as the refetched ticket carries it.
+  useEffect(() => {
+    if (pendingScore !== null && scoreValue === pendingScore) setPendingScore(null)
+  }, [scoreValue, pendingScore])
 
   const handleScoreChange = async (value: string) => {
+    if (value === (pendingScore ?? scoreValue)) return
     setScoreSaving(true)
     setScoreError('')
+    setPendingScore(value)
     try {
-      await window.api.tickets.setScore(idNum, value)
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+      // The override travels with the request: the main process refuses the write
+      // on its own unless it is told, on purpose, to ignore the clients rule.
+      await window.api.tickets.setScore(idNum, value, !clientsAllowsScore && allowScoreWithoutClientsRight)
+      await queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
     } catch (err: any) {
+      setPendingScore(null)
       setScoreError(err?.message || 'Не удалось выставить баллы')
     } finally {
       setScoreSaving(false)
@@ -3678,16 +3694,17 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 <span className="text-[10px] text-muted-foreground">Баллы</span>
                 {canEditScore ? (
                   <div className="flex items-center gap-1">
-                    <Award className="h-3.5 w-3.5 shrink-0 text-yellow-500" />
-                    <div className="min-w-0 flex-1">
+                    {scoreSaving
+                      ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-yellow-500" />
+                      : <Award className="h-3.5 w-3.5 shrink-0 text-yellow-500" />}
+                    <div className={cn('min-w-0 flex-1 transition-opacity', scoreSaving && 'pointer-events-none opacity-60')}>
                       <CustomSelect
-                        value={scoreValue ?? ''}
+                        value={(pendingScore ?? scoreValue) ?? ''}
                         options={scoreOptions.map(option => ({ id: option.value, name: option.label }))}
                         onChange={option => handleScoreChange(String(option.id))}
                         placeholder="Без оценки"
                       />
                     </div>
-                    {scoreSaving && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />}
                   </div>
                 ) : (
                   <span className="text-xs font-semibold text-foreground flex items-center gap-1">

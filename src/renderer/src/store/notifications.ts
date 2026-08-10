@@ -13,7 +13,7 @@ export interface NotificationItem {
   toastEnabled: boolean
   isRead: boolean
   createdAt: string
-  type: 'message' | 'status' | 'owner' | 'other'
+  type: 'message' | 'status' | 'owner' | 'score' | 'other'
 }
 
 export interface FilterNotificationRule {
@@ -31,6 +31,8 @@ export interface NotificationSettings {
   myTicketsVolume: number
   myTicketsSoundEnabled?: boolean
   myTicketsToastEnabled?: boolean
+  /** Notify when someone awards points on my ticket. */
+  scoreEnabled?: boolean
   rules: FilterNotificationRule[]
   closeToTrayEnabled?: boolean
 }

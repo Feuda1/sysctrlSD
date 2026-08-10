@@ -184,6 +184,8 @@ function SecretSettingsModal({ onClose }: { onClose: () => void }) {
   const setAllowTicketPendingWithoutReason = useUIStore(s => s.setAllowTicketPendingWithoutReason)
   const allowTicketStatusWithoutPublicComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
   const setAllowTicketStatusWithoutPublicComment = useUIStore(s => s.setAllowTicketStatusWithoutPublicComment)
+  const allowScoreWithoutClientsRight = useUIStore(s => s.allowScoreWithoutClientsRight)
+  const setAllowScoreWithoutClientsRight = useUIStore(s => s.setAllowScoreWithoutClientsRight)
 
   return (
     <motion.div
@@ -215,6 +217,11 @@ function SecretSettingsModal({ onClose }: { onClose: () => void }) {
             checked={allowTicketStatusWithoutPublicComment}
             onChange={setAllowTicketStatusWithoutPublicComment}
             label="Откладывать без комментария"
+          />
+          <SecretToggle
+            checked={allowScoreWithoutClientsRight}
+            onChange={setAllowScoreWithoutClientsRight}
+            label="Игнорировать запрет clients на баллы"
           />
         </div>
       </motion.div>
@@ -936,6 +943,21 @@ function NotificationSettingsSection() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      <div className="rounded-xl border border-border/40 bg-muted/10 backdrop-blur-md p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Баллы за заявку</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Уведомлять, когда за вашу заявку выставили или изменили баллы
+            </p>
+          </div>
+          <Switch
+            checked={settings.scoreEnabled !== false}
+            onChange={(val) => updateMyTickets({ scoreEnabled: val })}
+          />
+        </div>
       </div>
 
       {allFilters.length > 0 && (

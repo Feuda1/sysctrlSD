@@ -8,6 +8,11 @@ const CHAT_STYLE_STORAGE_KEY = 'ui.chatStyle'
 const BUBBLE_SIDE_STORAGE_KEY = 'ui.bubbleSide'
 const SECRET_TICKET_CONTROLS_KEY = 'ui.secretTicketControls'
 const SECRET_TICKET_REASON_CONTROLS_KEY = 'ui.secretTicketReasonControls'
+const SECRET_SCORE_OVERRIDE_KEY = 'ui.secretScoreOverride'
+
+function getStoredScoreOverride(): boolean {
+  return window.localStorage.getItem(SECRET_SCORE_OVERRIDE_KEY) === '1'
+}
 const AFTER_COMMENT_SUBMIT_KEY = 'ui.afterCommentSubmitAction'
 const HIDE_SCROLL_DOWN_ARROW_KEY = 'ui.hideScrollDownArrow'
 const OPEN_CREATED_TICKET_KEY = 'ui.openCreatedTicket'
@@ -90,6 +95,9 @@ interface UIState {
   setAllowTicketStatusWithoutPublicComment: (enabled: boolean) => void
   allowTicketPendingWithoutReason: boolean
   setAllowTicketPendingWithoutReason: (enabled: boolean) => void
+  /** Offer the score control even when clients marks it read-only. */
+  allowScoreWithoutClientsRight: boolean
+  setAllowScoreWithoutClientsRight: (enabled: boolean) => void
 
   isQuickTicketOpen: boolean
   setQuickTicketOpen: (open: boolean) => void
@@ -108,6 +116,7 @@ export const useUIStore = create<UIState>((set) => ({
   bubbleSide: getStoredBubbleSide(),
   allowTicketStatusWithoutPublicComment: getStoredSecretTicketControls(),
   allowTicketPendingWithoutReason: getStoredSecretTicketReasonControls(),
+  allowScoreWithoutClientsRight: getStoredScoreOverride(),
   afterCommentSubmitAction: getStoredAfterCommentSubmitAction(),
   hideScrollDownArrow: getStoredHideScrollDownArrow(),
   openCreatedTicket: getStoredOpenCreatedTicket(),
@@ -164,6 +173,11 @@ export const useUIStore = create<UIState>((set) => ({
   setAllowTicketPendingWithoutReason: (enabled) => {
     window.localStorage.setItem(SECRET_TICKET_REASON_CONTROLS_KEY, enabled ? '1' : '0')
     set({ allowTicketPendingWithoutReason: enabled })
+  },
+
+  setAllowScoreWithoutClientsRight: (enabled) => {
+    window.localStorage.setItem(SECRET_SCORE_OVERRIDE_KEY, enabled ? '1' : '0')
+    set({ allowScoreWithoutClientsRight: enabled })
   },
 
   setQuickTicketOpen: (open) => set({ isQuickTicketOpen: open }),
