@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
-import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Globe, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Globe, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useUIStore } from '@/store/ui'
@@ -32,12 +32,29 @@ import {
   type ComposerAttachment,
   type ViewerItem
 } from '@/lib/ticketFormat'
-import { readFileAsDataUrl, dataUrlPayload } from '@/lib/utils'
+import { readFileAsDataUrl, dataUrlPayload, getUserDisplayName } from '@/lib/utils'
 import { CustomToggle, CustomSelect, CustomMultiSelect, CustomDateTimePicker } from '@/components/ui/custom-controls'
 import { AttachmentTile, AttachmentPreviewCard, MediaViewer, MiniAudioPlayer } from '@/components/tickets/TicketAttachments'
 import { TicketExportModal } from '@/components/tickets/TicketExportModal'
 import { ArticleBody } from '@/components/tickets/ArticleBody'
 import { TicketHistoryModal } from '@/components/tickets/TicketHistoryModal'
+
+/** Everything needed to send a comment — and to send it again if it fails. */
+interface CommentSubmission {
+  draft: {
+    body: string
+    attachments: ComposerAttachment[]
+    internal: boolean
+    articleType: string
+  }
+  timeUnit: number | null
+  includeArticle: boolean
+}
+
+interface PendingComment extends CommentSubmission {
+  failed: boolean
+  at: string
+}
 
 interface Member {
   id: number
@@ -145,6 +162,8 @@ export default function TicketDetailsPage() {
   const [commentBody, setCommentBody] = useState('')
   const [commentAttachments, setCommentAttachments] = useState<ComposerAttachment[]>([])
   const [commentInternal, setCommentInternal] = useState(false)
+  // The message shown in the thread while it is on its way to Zammad.
+  const [pendingComment, setPendingComment] = useState<PendingComment | null>(null)
   const [commentArticleType, setCommentArticleType] = useState('')
   const [commentStateId, setCommentStateId] = useState<number | null>(null)
   const [ticketTypeId, setTicketTypeId] = useState<string | null>(null)
@@ -629,18 +648,20 @@ export default function TicketDetailsPage() {
     }
   }
 
+  // The composer is cleared the moment the message is sent, so the payload has to
+  // travel with the mutation instead of being read back from the state.
   const addCommentMutation = useMutation({
-    mutationFn: async ({ timeUnit, includeArticle }: { timeUnit: number | null; includeArticle: boolean }) => {
-      const attachments = includeArticle ? await Promise.all(commentAttachments.map(async attachment => ({
+    mutationFn: async ({ draft, timeUnit, includeArticle }: CommentSubmission) => {
+      const attachments = includeArticle ? draft.attachments.map(attachment => ({
         filename: attachment.filename,
         mimeType: attachment.mimeType,
         data: dataUrlPayload(attachment.dataUrl)
-      }))) : []
+      })) : []
       return window.api.tickets.addComment({
         ticketId: idNum,
-        body: includeArticle && commentBody.trim() ? toHtmlComment(commentBody) : '',
-        internal: commentInternal,
-        articleType: commentArticleType || getAutoArticleType(detailsData?.ticket?.channel),
+        body: includeArticle && draft.body.trim() ? toHtmlComment(draft.body) : '',
+        internal: draft.internal,
+        articleType: draft.articleType,
         stateId: commentStateId ?? undefined,
         ticketTypeId,
         groupId,
@@ -655,11 +676,10 @@ export default function TicketDetailsPage() {
     },
     onSuccess: (_data, variables) => {
       if (variables.includeArticle) {
-        setCommentBody('')
-        setCommentAttachments([])
         setCommentTimeUnit('')
         setIsTimeModalOpen(false)
       }
+      setPendingComment(null)
       setCommentError('')
       setCommentWarning('')
       queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
@@ -669,10 +689,44 @@ export default function TicketDetailsPage() {
         closeTab(activeTabId)
       }
     },
-    onError: (error) => {
+    onError: (error, variables) => {
+      // The text is never thrown away: the message stays in the thread marked as
+      // unsent, with a button to send it again.
+      if (variables.includeArticle) {
+        setPendingComment(previous => previous ? { ...previous, failed: true } : previous)
+      }
       setCommentError(error instanceof Error ? error.message : 'Не удалось отправить комментарий')
     }
   })
+
+  const sendComment = (submission: CommentSubmission) => {
+    if (submission.includeArticle && (submission.draft.body.trim() || submission.draft.attachments.length > 0)) {
+      setPendingComment({ ...submission, failed: false, at: new Date().toISOString() })
+      setCommentBody('')
+      setCommentAttachments([])
+    }
+    addCommentMutation.mutate(submission)
+  }
+
+  const retryPendingComment = () => {
+    if (!pendingComment) return
+    setPendingComment({ ...pendingComment, failed: false })
+    setCommentError('')
+    addCommentMutation.mutate({
+      draft: pendingComment.draft,
+      timeUnit: pendingComment.timeUnit,
+      includeArticle: pendingComment.includeArticle
+    })
+  }
+
+  /** Drops the unsent message and puts its text back into the composer. */
+  const discardPendingComment = () => {
+    if (!pendingComment) return
+    setCommentBody(current => current.trim() ? current : pendingComment.draft.body)
+    setCommentAttachments(current => current.length > 0 ? current : pendingComment.draft.attachments)
+    setPendingComment(null)
+    setCommentError('')
+  }
 
   const openTimeModal = (keepTime: boolean | any = false) => {
     const isKeepTime = keepTime === true
@@ -705,7 +759,16 @@ export default function TicketDetailsPage() {
       setCommentError('Укажите корректное время')
       return
     }
-    addCommentMutation.mutate({ timeUnit: parsedTime, includeArticle: true })
+    sendComment({
+      draft: {
+        body: commentBody,
+        attachments: commentAttachments,
+        internal: commentInternal,
+        articleType: commentArticleType || getAutoArticleType(detailsData?.ticket?.channel)
+      },
+      timeUnit: parsedTime,
+      includeArticle: true
+    })
   }
 
   const updateCommentTimeUnit = (value: string) => {
@@ -1573,10 +1636,85 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                     </div>
                   )
                 })
-              ) : (
+              ) : !pendingComment ? (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
                   <p className="text-xs">Нет комментариев к заявке</p>
                 </div>
+              ) : null}
+
+              {pendingComment && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    'w-full flex gap-2.5 items-start',
+                    bubbleSide === 'client-left' ? 'justify-end' : 'justify-end'
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'max-w-[88%] rounded-2xl rounded-tr-none border px-5 py-4 shadow-sm flex flex-col gap-3 transition-opacity',
+                      pendingComment.draft.internal
+                        ? 'bg-red-50/70 dark:bg-red-950/35 border-red-200/60 dark:border-red-900/40 text-red-950 dark:text-zinc-100'
+                        : 'bg-blue-50/70 dark:bg-blue-950/45 border-blue-200/60 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100',
+                      pendingComment.failed ? 'border-destructive/50' : 'opacity-70'
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-6 border-b border-zinc-200 pb-2 text-xs text-zinc-550 dark:border-zinc-700/30 dark:text-zinc-400">
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <ChannelIcon channel={pendingComment.draft.internal ? 'note' : pendingComment.draft.articleType} />
+                        <span className="text-zinc-850 dark:text-zinc-300">
+                          {currentUser ? getUserDisplayName(currentUser.firstname, currentUser.lastname) : 'Вы'}
+                          {pendingComment.draft.internal && (
+                            <span className="ml-1 font-semibold text-amber-500 dark:text-amber-400">(Внутренняя заметка)</span>
+                          )}
+                        </span>
+                      </div>
+                      <span className="flex items-center gap-1.5 font-mono">
+                        {pendingComment.failed ? (
+                          <span className="flex items-center gap-1 text-destructive">
+                            <AlertCircle className="h-3 w-3" />
+                            Не отправлено
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Отправляется…
+                          </span>
+                        )}
+                      </span>
+                    </div>
+
+                    <p className="whitespace-pre-wrap break-words text-sm leading-6">{pendingComment.draft.body}</p>
+
+                    {pendingComment.draft.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 border-t border-zinc-700/30 pt-2.5">
+                        {pendingComment.draft.attachments.map(attachment => (
+                          <span
+                            key={attachment.id}
+                            className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground"
+                          >
+                            <Paperclip className="h-3 w-3 shrink-0" />
+                            <span className="max-w-[160px] truncate">{attachment.filename}</span>
+                            <span className="opacity-70">{formatAttachmentSize(attachment.size)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {pendingComment.failed && (
+                      <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
+                        <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
+                          <RefreshCw className="h-3 w-3" />
+                          Повторить
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={discardPendingComment} className="h-7 text-xs text-muted-foreground">
+                          Вернуть в поле ввода
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
               )}
             </div>
           </div>

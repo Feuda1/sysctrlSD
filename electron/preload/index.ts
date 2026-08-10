@@ -115,30 +115,54 @@ export type CallRecording = {
   contentType: string
 }
 
+/**
+ * Electron wraps everything an IPC handler throws into
+ * "Error invoking remote method 'tickets:create': Error: <текст>", and that whole
+ * string used to end up in front of the user. Only the message the handler wrote
+ * is of any use to them; the channel name goes to the console instead.
+ */
+function cleanIpcError(error: unknown, channel: string): Error {
+  const raw = error instanceof Error ? error.message : String(error)
+  const withoutChannel = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
+  const message = withoutChannel.replace(/^(?:Error|TypeError|RangeError):\s*/, '').trim()
+  const cleaned = new Error(message || 'Не удалось выполнить операцию')
+  cleaned.stack = error instanceof Error ? error.stack : undefined
+  console.error(`IPC ${channel} failed:`, raw)
+  return cleaned
+}
+
+async function invoke(channel: string, ...args: unknown[]): Promise<any> {
+  try {
+    return await ipcRenderer.invoke(channel, ...args)
+  } catch (error) {
+    throw cleanIpcError(error, channel)
+  }
+}
+
 const api = {
   auth: {
     login: (email: string, password: string): Promise<AuthResult> =>
-      ipcRenderer.invoke('auth:login', email, password),
+      invoke('auth:login', email, password),
     logout: (): Promise<void> =>
-      ipcRenderer.invoke('auth:logout'),
+      invoke('auth:logout'),
     restore: (): Promise<AuthResult | null> =>
-      ipcRenderer.invoke('auth:restore'),
+      invoke('auth:restore'),
     setZammadToken: (token: string): Promise<AppUser> =>
-      ipcRenderer.invoke('auth:setZammadToken', token),
+      invoke('auth:setZammadToken', token),
     updateAvatar: (avatarDataUrl: string): Promise<AppUser> =>
-      ipcRenderer.invoke('auth:updateAvatar', avatarDataUrl),
+      invoke('auth:updateAvatar', avatarDataUrl),
     getClientProfileSettings: (): Promise<ClientProfileSettings> =>
-      ipcRenderer.invoke('auth:getClientProfileSettings'),
+      invoke('auth:getClientProfileSettings'),
     updateClientProfileSettings: (patch: ClientProfileSettingsPatch): Promise<ClientProfileSettings> =>
-      ipcRenderer.invoke('auth:updateClientProfileSettings', patch),
+      invoke('auth:updateClientProfileSettings', patch),
     hasZammadToken: (): Promise<boolean> =>
-      ipcRenderer.invoke('auth:hasZammadToken')
+      invoke('auth:hasZammadToken')
   },
   window: {
-    minimize: (): Promise<void> => ipcRenderer.invoke('window:minimize'),
-    maximize: (): Promise<void> => ipcRenderer.invoke('window:maximize'),
-    close: (): Promise<void> => ipcRenderer.invoke('window:close'),
-    isMaximized: (): Promise<boolean> => ipcRenderer.invoke('window:isMaximized'),
+    minimize: (): Promise<void> => invoke('window:minimize'),
+    maximize: (): Promise<void> => invoke('window:maximize'),
+    close: (): Promise<void> => invoke('window:close'),
+    isMaximized: (): Promise<boolean> => invoke('window:isMaximized'),
     onStateChange: (callback: (state: { maximized: boolean }) => void) => {
       const handler = (_: Electron.IpcRendererEvent, state: { maximized: boolean }) =>
         callback(state)
@@ -148,22 +172,22 @@ const api = {
   },
   windows: {
     open: (initialPath: string, bounds?: { x?: number; y?: number; width?: number; height?: number }): Promise<void> =>
-      ipcRenderer.invoke('windows:open', initialPath, bounds),
+      invoke('windows:open', initialPath, bounds),
     // Initial route for a freshly opened window, read from the URL query.
     getInitialPath: (): string | null =>
       new URLSearchParams(window.location.search).get('initialPath')
   },
   app: {
     getExtensionInfo: (): Promise<{ path: string; packaged: boolean }> =>
-      ipcRenderer.invoke('app:getExtensionInfo'),
-    getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+      invoke('app:getExtensionInfo'),
+    getVersion: (): Promise<string> => invoke('app:getVersion'),
     showContextMenu: (
       items: { id?: string; label?: string; type?: 'separator'; enabled?: boolean }[]
-    ): Promise<string | null> => ipcRenderer.invoke('app:showContextMenu', items)
+    ): Promise<string | null> => invoke('app:showContextMenu', items)
   },
   ai: {
     complete: (params: { systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter' }): Promise<string> =>
-      ipcRenderer.invoke('ai:complete', params)
+      invoke('ai:complete', params)
   },
   deeplink: {
     onOpenTicket: (callback: (clientsNumber: string) => void) => {
@@ -173,9 +197,9 @@ const api = {
     }
   },
   theme: {
-    get: (): Promise<'dark' | 'light'> => ipcRenderer.invoke('theme:get'),
+    get: (): Promise<'dark' | 'light'> => invoke('theme:get'),
     set: (theme: 'dark' | 'light' | 'system'): Promise<'dark' | 'light'> =>
-      ipcRenderer.invoke('theme:set', theme)
+      invoke('theme:set', theme)
   },
   tickets: {
     list: (params: {
@@ -189,21 +213,21 @@ const api = {
       createdFrom?: string
       createdTo?: string
       dateField?: 'created' | 'closed'
-    }) => ipcRenderer.invoke('tickets:list', params),
+    }) => invoke('tickets:list', params),
     getMyTicketsCounts: (): Promise<any> =>
-      ipcRenderer.invoke('tickets:getMyTicketsCounts'),
-    getFilters: () => ipcRenderer.invoke('tickets:getFilters'),
+      invoke('tickets:getMyTicketsCounts'),
+    getFilters: () => invoke('tickets:getFilters'),
     savePinned: (pinned: { wrapperId: number; name: string }[]) =>
-      ipcRenderer.invoke('tickets:savePinned', pinned),
+      invoke('tickets:savePinned', pinned),
     saveFilters: (filters: any[]) =>
-      ipcRenderer.invoke('tickets:saveFilters', filters),
+      invoke('tickets:saveFilters', filters),
     saveStateColors: (colors: Record<number, string>) =>
-      ipcRenderer.invoke('tickets:saveStateColors', colors),
-    setToken: (token: string) => ipcRenderer.invoke('tickets:setToken', token),
+      invoke('tickets:saveStateColors', colors),
+    setToken: (token: string) => invoke('tickets:setToken', token),
     getDetails: (ticketId: number): Promise<{ ticket: any; customer: any; organization: any }> =>
-      ipcRenderer.invoke('tickets:getDetails', ticketId),
+      invoke('tickets:getDetails', ticketId),
     getArticles: (ticketId: number): Promise<any[]> =>
-      ipcRenderer.invoke('tickets:getArticles', ticketId),
+      invoke('tickets:getArticles', ticketId),
     addComment: (params: {
       ticketId: number
       body: string
@@ -219,26 +243,26 @@ const api = {
       pendingTime?: string | null
       timeUnit?: number | null
       attachments?: { filename: string; data: string; mimeType: string }[]
-    }) => ipcRenderer.invoke('tickets:addComment', params),
+    }) => invoke('tickets:addComment', params),
     getAttachment: (ticketId: number, articleId: number, attachmentId: number): Promise<{ dataUrl: string; contentType: string }> =>
-      ipcRenderer.invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
+      invoke('tickets:getAttachment', ticketId, articleId, attachmentId),
     setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean): Promise<{ ok: true }> =>
-      ipcRenderer.invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
+      invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }
     ): Promise<{ ok: boolean; canceled?: boolean; path?: string; savedImages?: number; savedFiles?: number }> =>
-      ipcRenderer.invoke('tickets:export', ticketId, options),
+      invoke('tickets:export', ticketId, options),
     getHistory: (ticketId: number): Promise<any[]> =>
-      ipcRenderer.invoke('tickets:getHistory', ticketId),
+      invoke('tickets:getHistory', ticketId),
     searchForMerge: (query: string): Promise<any[]> =>
-      ipcRenderer.invoke('tickets:searchForMerge', query),
+      invoke('tickets:searchForMerge', query),
     merge: (sourceTicketId: number, targetTicketNumber: string): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('tickets:merge', sourceTicketId, targetTicketNumber),
+      invoke('tickets:merge', sourceTicketId, targetTicketNumber),
     changeCustomer: (ticketId: number, customerId: number): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('tickets:changeCustomer', ticketId, customerId),
+      invoke('tickets:changeCustomer', ticketId, customerId),
     createSubTicket: (params: any): Promise<{ ok: boolean; newTicketId?: number }> =>
-      ipcRenderer.invoke('tickets:createSubTicket', params),
+      invoke('tickets:createSubTicket', params),
     createFromCall: (params: {
       clientId?: number | null
       title: string
@@ -255,9 +279,9 @@ const api = {
       pendingTime?: string | null
       timeUnit?: string
     }): Promise<{ ok: boolean; newTicketId?: number }> =>
-      ipcRenderer.invoke('tickets:createFromCall', params),
+      invoke('tickets:createFromCall', params),
     resolveClientsNumber: (num: string): Promise<number | null> =>
-      ipcRenderer.invoke('tickets:resolveClientsNumber', num),
+      invoke('tickets:resolveClientsNumber', num),
     onTicketUpdated: (callback: (ticketId: number) => void) => {
       const handler = (_: any, ticketId: number) => callback(ticketId)
       ipcRenderer.on('tickets:details-updated', handler)
@@ -276,11 +300,11 @@ const api = {
   },
   organizations: {
     list: (params: { query: string; page: number; perPage: number }) =>
-      ipcRenderer.invoke('organizations:list', params),
+      invoke('organizations:list', params),
     getMembers: (orgId: number) =>
-      ipcRenderer.invoke('organizations:getMembers', orgId),
+      invoke('organizations:getMembers', orgId),
     getTickets: (orgId: number) =>
-      ipcRenderer.invoke('organizations:getTickets', orgId),
+      invoke('organizations:getTickets', orgId),
     onOrganizationsUpdated: (callback: (orgId?: number) => void) => {
       const listHandler = () => callback()
       const membersHandler = (_: any, orgId?: number) => callback(orgId)
@@ -296,22 +320,22 @@ const api = {
     }
   },
   users: {
-    search: (query: string) => ipcRenderer.invoke('users:search', query),
+    search: (query: string) => invoke('users:search', query),
     create: (userPayload: any): Promise<any> =>
-      ipcRenderer.invoke('users:create', userPayload),
+      invoke('users:create', userPayload),
     update: (userId: number, userPayload: any): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('users:update', userId, userPayload)
+      invoke('users:update', userId, userPayload)
   },
   forms: {
     list: (): Promise<{ name: string; forms: { id: number; name: string }[] }[]> =>
-      ipcRenderer.invoke('forms:list')
+      invoke('forms:list')
   },
   calls: {
     getAll: (params?: { query?: string; page?: number; perPage?: number }): Promise<CallsResponse> =>
-      ipcRenderer.invoke('calls:getAll', params),
-    getRecording: (url: string): Promise<CallRecording> => ipcRenderer.invoke('calls:getRecording', url),
+      invoke('calls:getAll', params),
+    getRecording: (url: string): Promise<CallRecording> => invoke('calls:getRecording', url),
     bindToTicket: (params: { ticketId: string; src: string; dst: string; callId: string; duration: string; date: string }): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('calls:bindToTicket', params),
+      invoke('calls:bindToTicket', params),
     onCallsUpdated: (callback: () => void) => {
       const handler = () => callback()
       ipcRenderer.on('calls:updated', handler)
@@ -319,9 +343,9 @@ const api = {
     }
   },
   updater: {
-    check: (): Promise<{ ok: boolean; dev?: boolean }> => ipcRenderer.invoke('updater:check'),
-    install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
-    getState: (): Promise<UpdateState> => ipcRenderer.invoke('updater:get-state'),
+    check: (): Promise<{ ok: boolean; dev?: boolean }> => invoke('updater:check'),
+    install: (): Promise<void> => invoke('updater:install'),
+    getState: (): Promise<UpdateState> => invoke('updater:get-state'),
     onStatus: (callback: (state: UpdateState) => void) => {
       const handler = (_: Electron.IpcRendererEvent, state: UpdateState) => callback(state)
       ipcRenderer.on('updater:status', handler)
@@ -329,13 +353,13 @@ const api = {
     }
   },
   notifications: {
-    getSettings: (): Promise<NotificationSettings> => ipcRenderer.invoke('notifications:getSettings'),
-    saveSettings: (settings: NotificationSettings): Promise<void> => ipcRenderer.invoke('notifications:saveSettings', settings),
-    getSounds: (): Promise<string[]> => ipcRenderer.invoke('notifications:getSounds'),
-    uploadSound: (name: string, dataUrl: string): Promise<void> => ipcRenderer.invoke('notifications:uploadSound', name, dataUrl),
-    getHistory: (): Promise<NotificationItem[]> => ipcRenderer.invoke('notifications:getHistory'),
-    markAsRead: (id: string): Promise<void> => ipcRenderer.invoke('notifications:markAsRead', id),
-    markAllAsRead: (): Promise<void> => ipcRenderer.invoke('notifications:markAllAsRead'),
+    getSettings: (): Promise<NotificationSettings> => invoke('notifications:getSettings'),
+    saveSettings: (settings: NotificationSettings): Promise<void> => invoke('notifications:saveSettings', settings),
+    getSounds: (): Promise<string[]> => invoke('notifications:getSounds'),
+    uploadSound: (name: string, dataUrl: string): Promise<void> => invoke('notifications:uploadSound', name, dataUrl),
+    getHistory: (): Promise<NotificationItem[]> => invoke('notifications:getHistory'),
+    markAsRead: (id: string): Promise<void> => invoke('notifications:markAsRead', id),
+    markAllAsRead: (): Promise<void> => invoke('notifications:markAllAsRead'),
     onNewNotification: (callback: (notif: NotificationItem) => void) => {
       const handler = (_: any, notif: NotificationItem) => callback(notif)
       ipcRenderer.on('notifications:new', handler)
