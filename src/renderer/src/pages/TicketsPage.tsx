@@ -126,6 +126,7 @@ function readStoredDateRange(): DateRange {
     const parsed = JSON.parse(raw) as DateRange
     const isDay = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
     return {
+      field: parsed?.field === 'closed' ? 'closed' : 'created',
       from: isDay(parsed?.from) ? parsed.from : null,
       to: isDay(parsed?.to) ? parsed.to : null
     }
@@ -222,7 +223,8 @@ export default function TicketsPage() {
     searchQuery,
     myTicketsStateId: undefined,
     createdFrom: dateRange.from ?? undefined,
-    createdTo: dateRange.to ?? undefined
+    createdTo: dateRange.to ?? undefined,
+    dateField: dateRange.field ?? 'created'
   }
 
   const { data, isLoading, isPlaceholderData, isError, error } = useTickets(

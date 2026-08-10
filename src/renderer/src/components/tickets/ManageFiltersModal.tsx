@@ -21,11 +21,12 @@ const AVAILABLE_COLUMNS: MetadataItem[] = [
   { id: 12, name: 'Тип заявки' },
   { id: 13, name: 'Причина обращения (IIKO)' },
   { id: 14, name: 'Теги' },
+  { id: 15, name: 'Дата закрытия' },
 ]
 
 const COLUMN_KEY_MAP: Record<number, string> = {
   1: 'number', 2: 'title', 3: 'state', 4: 'priority', 5: 'organization',
-  6: 'group', 7: 'owner', 8: 'createdAt', 9: 'updatedAt', 10: 'pendingTime', 11: 'score', 12: 'ticketType', 13: 'iikoReasons', 14: 'tags'
+  6: 'group', 7: 'owner', 8: 'createdAt', 9: 'updatedAt', 10: 'pendingTime', 11: 'score', 12: 'ticketType', 13: 'iikoReasons', 14: 'tags', 15: 'closedAt'
 }
 
 const COLUMN_NAME_MAP: Record<string, string> = {
@@ -42,7 +43,8 @@ const COLUMN_NAME_MAP: Record<string, string> = {
   score: 'Баллы за заявку',
   ticketType: 'Тип заявки',
   iikoReasons: 'Причина обращения (IIKO)',
-  tags: 'Теги'
+  tags: 'Теги',
+  closedAt: 'Дата закрытия'
 }
 
 const SCORE_OPTIONS = [

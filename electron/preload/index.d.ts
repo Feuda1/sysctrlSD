@@ -52,6 +52,7 @@ declare global {
           myTicketsStateId?: number
           createdFrom?: string
           createdTo?: string
+          dateField?: 'created' | 'closed'
         }) => Promise<any>
         getMyTicketsCounts: () => Promise<any>
         getFilters: () => Promise<any>
@@ -78,6 +79,7 @@ declare global {
           attachments?: { filename: string; data: string; mimeType: string }[]
         }) => Promise<any>
         getAttachment: (ticketId: number, articleId: number, attachmentId: number) => Promise<{ dataUrl: string; contentType: string }>
+        setScore: (ticketId: number, score: string) => Promise<{ ok: true }>
         exportTicket: (
           ticketId: number,
           options: { text: boolean; images: boolean; files: boolean }

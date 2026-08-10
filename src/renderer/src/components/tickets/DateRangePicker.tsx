@@ -4,12 +4,15 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+export type DateField = 'created' | 'closed'
+
 export interface DateRange {
   from: string | null
   to: string | null
+  field?: DateField
 }
 
-export const EMPTY_RANGE: DateRange = { from: null, to: null }
+export const EMPTY_RANGE: DateRange = { from: null, to: null, field: 'created' }
 
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const MONTHS = [
@@ -149,15 +152,18 @@ const PRESETS: Preset[] = [
 
 export function rangeLabel(range: DateRange): string {
   if (!range.from && !range.to) return 'Период'
+  // The field matters as much as the dates — "Сегодня" by creation and by
+  // closing are different lists, and the button is the only place that says which.
+  const prefix = range.field === 'closed' ? 'Закрыта: ' : ''
   const matched = PRESETS.find(preset => {
     const built = preset.build()
     return built.from === range.from && built.to === range.to
   })
-  if (matched) return matched.label
+  if (matched) return prefix + matched.label
   if (range.from && range.to) {
-    return range.from === range.to ? formatRu(range.from) : `${formatRu(range.from)} — ${formatRu(range.to)}`
+    return prefix + (range.from === range.to ? formatRu(range.from) : `${formatRu(range.from)} — ${formatRu(range.to)}`)
   }
-  return range.from ? `с ${formatRu(range.from)}` : `по ${formatRu(range.to)}`
+  return prefix + (range.from ? `с ${formatRu(range.from)}` : `по ${formatRu(range.to)}`)
 }
 
 interface DateRangePickerProps {
@@ -239,8 +245,12 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const todayKey = toDayKey(new Date())
 
+  const field: DateField = value.field ?? 'created'
+
+  // Presets and calendar clicks only produce dates; the chosen field has to
+  // survive all of them.
   const commit = (range: DateRange) => {
-    onChange(range)
+    onChange({ ...range, field: range.field ?? field })
   }
 
   const handleDayClick = (day: string) => {
@@ -321,6 +331,32 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
               style={{ position: 'absolute', top: coords.top, left: coords.left }}
               className="z-[9999] w-[430px] origin-top rounded-xl border border-border bg-card p-3 shadow-2xl"
             >
+              <div className="mb-3 flex rounded-lg border border-border bg-muted/30 p-0.5 text-[11px] font-medium">
+                {([
+                  { id: 'created' as DateField, label: 'По дате создания' },
+                  { id: 'closed' as DateField, label: 'По дате закрытия' }
+                ]).map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => commit({ ...value, field: option.id })}
+                    className={cn(
+                      'relative flex-1 rounded-md px-2 py-1.5 transition-colors',
+                      field === option.id ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {field === option.id && (
+                      <motion.span
+                        layoutId="date-field-pill"
+                        transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+                        className="absolute inset-0 rounded-md border border-border bg-card shadow-sm"
+                      />
+                    )}
+                    <span className="relative z-10">{option.label}</span>
+                  </button>
+                ))}
+              </div>
+
               <div className="flex gap-3">
                 <div className="flex w-[130px] shrink-0 flex-col gap-1">
                   <p className="px-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">

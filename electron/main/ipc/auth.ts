@@ -387,7 +387,10 @@ async function performLoginWrapper(email: string, password: string): Promise<App
     body: new URLSearchParams({
       Email: email,
       password,
-      RememberMe: 'false',
+      // With RememberMe off clients issues a session cookie, which dies with the
+      // process: every start had to log in from scratch, and that hammering is
+      // what gets the account temporarily refused.
+      RememberMe: 'true',
       __RequestVerificationToken: csrfToken
     }).toString()
   } as any)
@@ -417,10 +420,16 @@ async function performLoginWrapper(email: string, password: string): Promise<App
   // cookie here must never fail a login that otherwise works — whether the
   // profile page loads is the real answer.
   try {
-    const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
+    const byUrl = await ses.cookies.get({ url: WRAPPER_BASE })
+    const all = await ses.cookies.get({})
     logger.info('Куки clients после входа:', {
-      names: cookies.map(cookie => cookie.name),
-      hasIdentity: cookies.some(cookie => cookie.name === '.AspNetCore.Identity.Application')
+      byUrl: byUrl.map(cookie => cookie.name),
+      all: all.map(cookie => ({
+        name: cookie.name,
+        domain: cookie.domain,
+        session: cookie.session,
+        expires: cookie.expirationDate ? new Date(cookie.expirationDate * 1000).toISOString() : null
+      }))
     })
   } catch (err) {
     logger.warn('Не удалось прочитать куки clients:', err)

@@ -22,6 +22,7 @@ export interface Ticket {
   tags?: TicketTagItem[]
   createdAt: string
   updatedAt: string
+  closedAt?: string | null
   pendingTime?: string | null
   score?: number | null
   accountedTime?: number | null
@@ -134,9 +135,11 @@ export interface TicketListParams {
   sortAsc: boolean
   searchQuery?: string
   myTicketsStateId?: number
-  /** Inclusive period the ticket was created in, as YYYY-MM-DD. */
+  /** Inclusive period, as YYYY-MM-DD, applied to `dateField`. */
   createdFrom?: string
   createdTo?: string
+  /** Which date the period filters on. Defaults to the creation date. */
+  dateField?: 'created' | 'closed'
 }
 
 export interface TicketListResponse {

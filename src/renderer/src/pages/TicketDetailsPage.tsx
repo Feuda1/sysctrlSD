@@ -1800,6 +1800,8 @@ export default function TicketDetailsPage() {
   const [editCustomerModalOpen, setEditCustomerModalOpen] = useState(false)
   const [createSubTicketModalOpen, setCreateSubTicketModalOpen] = useState(false)
   const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [scoreSaving, setScoreSaving] = useState(false)
+  const [scoreError, setScoreError] = useState('')
   const [createSubTicketLoading, setCreateSubTicketLoading] = useState(false)
   const [createSubTicketError, setCreateSubTicketError] = useState('')
   const [subTitle, setSubTitle] = useState('')
@@ -2008,6 +2010,26 @@ export default function TicketDetailsPage() {
     } catch (err: any) {
       setMergeError(err.message || 'Ошибка объединения')
       setMergeLoading(false)
+    }
+  }
+
+  // The options, the current value and the right to change it all come from the
+  // clients ticket page — the app never decides on its own who may award points.
+  const scoreOptions: { value: string; label: string }[] = (detailsData?.ticket as any)?.scoreOptions ?? []
+  const scoreValue: string | null = (detailsData?.ticket as any)?.scoreValue ?? null
+  const canEditScore: boolean = ((detailsData?.ticket as any)?.canEditScore === true) && scoreOptions.length > 0
+
+  const handleScoreChange = async (value: string) => {
+    setScoreSaving(true)
+    setScoreError('')
+    try {
+      await window.api.tickets.setScore(idNum, value)
+      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+    } catch (err: any) {
+      setScoreError(err?.message || 'Не удалось выставить баллы')
+    } finally {
+      setScoreSaving(false)
     }
   }
 
@@ -3654,10 +3676,28 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/15 p-2">
                 <span className="text-[10px] text-muted-foreground">Баллы</span>
-                <span className="text-xs font-semibold text-foreground flex items-center gap-1">
-                  <Award className="h-3.5 w-3.5 text-yellow-500" />
-                  {ticket.score !== null && ticket.score !== undefined ? ticket.score : '—'}
-                </span>
+                {canEditScore ? (
+                  <div className="flex items-center gap-1">
+                    <Award className="h-3.5 w-3.5 shrink-0 text-yellow-500" />
+                    <select
+                      value={scoreValue ?? ''}
+                      disabled={scoreSaving}
+                      onChange={event => handleScoreChange(event.target.value)}
+                      className="min-w-0 flex-1 rounded border border-border bg-transparent px-1 py-0.5 text-xs font-semibold text-foreground outline-none focus:border-primary/60 disabled:opacity-60"
+                    >
+                      {scoreOptions.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    {scoreSaving && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />}
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1">
+                    <Award className="h-3.5 w-3.5 text-yellow-500" />
+                    {ticket.score !== null && ticket.score !== undefined ? ticket.score : '—'}
+                  </span>
+                )}
+                {scoreError && <span className="text-[10px] leading-tight text-destructive">{scoreError}</span>}
               </div>
               <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/15 p-2">
                 <span className="text-[10px] text-muted-foreground">Учётное время</span>
