@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { ErrorNotice } from '@/components/ui/error-notice'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { type SortingState } from '@tanstack/react-table'
-import { AlertCircle, Search, Settings2 } from 'lucide-react'
+import { Search, Settings2 } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -227,7 +228,7 @@ export default function TicketsPage() {
     dateField: dateRange.field ?? 'created'
   }
 
-  const { data, isLoading, isPlaceholderData, isError, error } = useTickets(
+  const { data, isLoading, isPlaceholderData, isError, error, refetch, isFetching } = useTickets(
     params,
     !!currentFilter || (!!searchQuery && searchQuery.trim().length > 0)
   )
@@ -306,10 +307,12 @@ export default function TicketsPage() {
       </div>
 
       {isError && (
-        <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive shrink-0">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>{error?.message ?? 'Ошибка загрузки заявок'}</span>
-        </div>
+        <ErrorNotice
+          error={error}
+          fallback="Ошибка загрузки заявок"
+          onRetry={() => void refetch()}
+          isRetrying={isFetching}
+        />
       )}
 
       <div className="flex-1 min-h-0">

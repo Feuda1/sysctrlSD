@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { ErrorNotice } from '@/components/ui/error-notice'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, Building, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Building, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { OrgDetailsPanel } from '@/components/organizations/OrgDetailsPanel'
@@ -30,7 +31,7 @@ export default function OrganizationsPage() {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null)
   const perPage = 50
 
-  const { data: orgs = [], isLoading, isFetching, isError, error } = useQuery<Organization[]>({
+  const { data: orgs = [], isLoading, isFetching, isError, error, refetch } = useQuery<Organization[]>({
     queryKey: ['organizations', query, page],
     queryFn: () => window.api.organizations.list({ query: query || '*', page, perPage }),
     staleTime: 30_000,
@@ -72,10 +73,12 @@ export default function OrganizationsPage() {
         </div>
 
         {isError && (
-          <div className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive shrink-0">
-            <ShieldAlert className="h-4 w-4 shrink-0" />
-            <span>{(error as any)?.message || 'Ошибка загрузки организаций'}</span>
-          </div>
+          <ErrorNotice
+            error={error}
+            fallback="Ошибка загрузки организаций"
+            onRetry={() => void refetch()}
+            isRetrying={isFetching}
+          />
         )}
 
         <div className="relative flex-1 min-h-0 overflow-hidden rounded-xl border border-border">
