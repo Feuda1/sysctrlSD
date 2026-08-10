@@ -42,6 +42,7 @@ import { TicketHistoryModal } from '@/components/tickets/TicketHistoryModal'
 import { LinkOrganizationModal } from '@/components/tickets/LinkOrganizationModal'
 import { EditCustomerModal } from '@/components/tickets/EditCustomerModal'
 import { ChangeCustomerModal } from '@/components/tickets/ChangeCustomerModal'
+import { MergeTicketModal } from '@/components/tickets/MergeTicketModal'
 
 /** Everything needed to send a comment — and to send it again if it fails. */
 interface CommentSubmission {
@@ -390,42 +391,6 @@ export default function TicketDetailsPage() {
     setCommentPendingTime(dateTimeLocalFromRaw(ticket.pendingTime) || tomorrowAtEleven())
   }, [detailsData?.ticket?.id])
 
-  const [mergeSearch, setMergeSearch] = useState('')
-  const [mergeResults, setMergeResults] = useState<any[]>([])
-  const [mergeLoading, setMergeLoading] = useState(false)
-  const [selectedMergeTarget, setSelectedMergeTarget] = useState<any | null>(null)
-  const [mergeError, setMergeError] = useState('')
-
-  const handleMergeSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!mergeSearch.trim()) return
-    setMergeLoading(true)
-    setMergeError('')
-    try {
-      const res = await window.api.tickets.searchForMerge(mergeSearch)
-      setMergeResults(res.filter((t: any) => t.id !== idNum))
-    } catch (err: any) {
-      setMergeError(err.message || 'Ошибка поиска')
-    } finally {
-      setMergeLoading(false)
-    }
-  }
-
-  const handleMergeSubmit = async () => {
-    if (!selectedMergeTarget) return
-    setMergeLoading(true)
-    setMergeError('')
-    try {
-      await window.api.tickets.merge(idNum, selectedMergeTarget.number)
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      setMergeModalOpen(false)
-      navigate(`/dashboard/tickets/${selectedMergeTarget.id}`)
-    } catch (err: any) {
-      setMergeError(err.message || 'Ошибка объединения')
-      setMergeLoading(false)
-    }
-  }
 
   // The options, the current value and the right to change it all come from the
   // clients ticket page — the app never decides on its own who may award points.
@@ -2432,114 +2397,17 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </>
         )}
         {mergeModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4 max-h-[85vh]"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <GitMerge className="h-[18px] w-[18px] text-primary" />
-                  Объединение заявок
-                </h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setMergeModalOpen(false); setSelectedMergeTarget(null); setMergeResults([]); setMergeSearch(''); setMergeError('') }}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {!selectedMergeTarget ? (
-                <div className="flex flex-col gap-4 overflow-y-auto pr-1">
-                  <form onSubmit={handleMergeSearch} className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={mergeSearch}
-                        onChange={(e) => setMergeSearch(e.target.value)}
-                        placeholder="ID, номер Zammad или тема..."
-                        className="h-9 w-full rounded-md border border-border bg-muted/30 pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none"
-                      />
-                    </div>
-                    <Button type="submit" size="sm" disabled={mergeLoading} className="h-9">
-                      {mergeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Найти'}
-                    </Button>
-                  </form>
-
-                  {mergeError && (
-                    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                      {mergeError}
-                    </div>
-                  )}
-
-                  <div className="space-y-2 mt-2">
-                    {mergeResults.map((t) => (
-                      <div
-                        key={t.id}
-                        onClick={() => setSelectedMergeTarget(t)}
-                        className="flex flex-col gap-1.5 p-3 rounded-lg border border-border/60 bg-muted/10 hover:border-primary/50 hover:bg-muted/20 cursor-pointer transition-all duration-100"
-                      >
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                          <span className="font-mono">#{t.clientNumber || t.id} (Zammad: #{t.number})</span>
-                          <span>{t.state.name}</span>
-                        </div>
-                        <h4 className="text-xs font-semibold text-foreground line-clamp-2 leading-relaxed">
-                          {t.title}
-                        </h4>
-                        <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1 border-t border-border/20">
-                          <span>{t.organization?.name || 'Без организации'}</span>
-                          <span>{t.owner?.name || 'Не назначен'}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {!mergeLoading && mergeSearch && mergeResults.length === 0 && (
-                      <div className="text-center py-6 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
-                        Подходящие заявки не найдены
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 flex gap-3 text-xs leading-relaxed text-foreground">
-                    <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-bold text-amber-600 dark:text-amber-400 mb-1">Объединить текущую заявку:</p>
-                      <div className="my-1.5 pl-2 border-l-2 border-amber-500/50 font-medium">
-                        #{detailsData?.ticket?.clientNumber || detailsData?.ticket?.id} — {detailsData?.ticket?.title}
-                      </div>
-                      с выбранной заявкой:
-                      <div className="my-1.5 pl-2 border-l-2 border-amber-500/50 font-medium">
-                        #{selectedMergeTarget.clientNumber || selectedMergeTarget.id} — {selectedMergeTarget.title}
-                      </div>
-                    </div>
-                  </div>
-
-                  {mergeError && (
-                    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                      {mergeError}
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-3 mt-2 border-t border-border pt-3">
-                    <Button variant="outline" size="sm" onClick={() => setSelectedMergeTarget(null)} disabled={mergeLoading}>
-                      Назад
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={handleMergeSubmit} disabled={mergeLoading}>
-                      {mergeLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                      Объединить
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          </motion.div>
+          <MergeTicketModal
+            ticketId={idNum}
+            ticketNumber={String(ticket.clientNumber || ticket.id)}
+            ticketTitle={ticket.title}
+            onClose={() => setMergeModalOpen(false)}
+            onMerged={target => {
+              queryClient.invalidateQueries({ queryKey: ['tickets'] })
+              queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+              navigate(`/dashboard/tickets/${target.id}`)
+            }}
+          />
         )}
 
         {changeCustomerModalOpen && (
