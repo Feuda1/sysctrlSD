@@ -10,7 +10,7 @@ import { ArrowUp, ArrowDown, ChevronsUpDown, Inbox, ChevronLeft, ChevronRight, M
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, DEFAULT_COLUMNS } from '@/types/ticket'
+import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, formatScore, DEFAULT_COLUMNS } from '@/types/ticket'
 import type { Ticket } from '@/types/ticket'
 
 const FALLBACK_COLUMN_WIDTH = 160
@@ -344,7 +344,7 @@ const columns: ColumnDef<Ticket>[] = [
       const val = row.original.score
       return (
         <span className="text-xs font-semibold text-muted-foreground tabular-nums">
-          {val !== null && val !== undefined ? String(val) : '—'}
+          {val !== null && val !== undefined ? formatScore(val) : '—'}
         </span>
       )
     }

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useUIStore } from '@/store/ui'
 import { useAuthStore } from '@/store/auth'
-import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate } from '@/types/ticket'
+import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, formatScore } from '@/types/ticket'
 import type { Ticket, TicketArticle, TicketAttachment, TicketCustomer, OrganizationDetails, TicketHistoryItem } from '@/types/ticket'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -3709,7 +3709,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 ) : (
                   <span className="text-xs font-semibold text-foreground flex items-center gap-1">
                     <Award className="h-3.5 w-3.5 text-yellow-500" />
-                    {ticket.score !== null && ticket.score !== undefined ? ticket.score : '—'}
+                    {ticket.score !== null && ticket.score !== undefined ? formatScore(ticket.score) : '—'}
                   </span>
                 )}
                 {scoreError && <span className="text-[10px] leading-tight text-destructive">{scoreError}</span>}

@@ -1700,7 +1700,10 @@ function normalizeZammadTicket(raw: any): Ticket {
   const tags = getTicketTags(raw)
 
   const pendingTime = raw.pending_time ? String(raw.pending_time) : null
-  const score = raw.score !== null && raw.score !== undefined && raw.score !== '' ? parseInt(String(raw.score), 10) : null
+  // clients awards halves ("01.5"), so parseInt turned 1,5 балла into 1 — the
+  // list looked like the change had not applied.
+  const rawScore = raw.score !== null && raw.score !== undefined && raw.score !== '' ? parseFloat(String(raw.score)) : null
+  const score = rawScore !== null && Number.isFinite(rawScore) ? rawScore : null
   const rawAccountedTime = raw.accounted_time ?? raw.accountedTime ?? raw.time_unit ?? raw.timeUnit ?? raw.time_units
   const accountedTime = rawAccountedTime !== null && rawAccountedTime !== undefined && rawAccountedTime !== ''
     ? Number(rawAccountedTime)
