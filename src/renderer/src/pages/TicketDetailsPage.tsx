@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
-import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Globe, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useUIStore } from '@/store/ui'
@@ -43,6 +43,8 @@ import { LinkOrganizationModal } from '@/components/tickets/LinkOrganizationModa
 import { EditCustomerModal } from '@/components/tickets/EditCustomerModal'
 import { ChangeCustomerModal } from '@/components/tickets/ChangeCustomerModal'
 import { MergeTicketModal } from '@/components/tickets/MergeTicketModal'
+import { CreateSubTicketModal } from '@/components/tickets/CreateSubTicketModal'
+import { ChannelIcon, PriorityCircles } from '@/components/tickets/TicketBadges'
 
 /** Everything needed to send a comment — and to send it again if it fails. */
 interface CommentSubmission {
@@ -92,71 +94,6 @@ interface Member {
   department: string | null
   max: string | null
   telegram: string | null
-}
-
-function ChannelIcon({ channel, className }: { channel?: string | null; className?: string }) {
-  if (!channel) return null
-  const c = channel.toLowerCase()
-  if (c.includes('mail') || c.includes('email')) {
-    return <span title="Почта" className={cn("flex shrink-0", className)}><Mail className="h-3.5 w-3.5 text-blue-400 shrink-0" /></span>
-  }
-  if (c.includes('phone') || c.includes('call') || c.includes('telephon')) {
-    return <span title="Телефон" className={cn("flex shrink-0", className)}><Phone className="h-3.5 w-3.5 text-green-400 shrink-0" /></span>
-  }
-  if (c.includes('telegram') || c.includes('max') || c.includes('chat') || c.includes('fax')) {
-    return <span title="Telegram / Бот" className={cn("flex shrink-0", className)}><Send className="h-3.5 w-3.5 text-sky-400 shrink-0" /></span>
-  }
-  if (c.includes('web')) {
-    return <span title="Web" className={cn("flex shrink-0", className)}><Globe className="h-3.5 w-3.5 text-orange-400 shrink-0" /></span>
-  }
-  if (c.includes('note')) {
-    return <span title="Заметка" className={cn("flex shrink-0", className)}><StickyNote className="h-3.5 w-3.5 text-amber-400 shrink-0" /></span>
-  }
-  return null
-}
-
-function PriorityCircles({ name }: { name: string }) {
-  const n = name.toLowerCase()
-  let level = 2
-  let colorClass = 'bg-blue-400'
-  let tooltip = 'Нормальный'
-
-  if (n.includes('4') || n.includes('critical') || n.includes('критич')) {
-    level = 4
-    colorClass = 'bg-red-500'
-    tooltip = 'Критический'
-  } else if (n.includes('3') || n.includes('high') || n.includes('высок')) {
-    level = 3
-    colorClass = 'bg-orange-400'
-    tooltip = 'Высокий'
-  } else if (n.includes('2') || n.includes('normal') || n.includes('нормал')) {
-    level = 2
-    colorClass = 'bg-blue-400'
-    tooltip = 'Нормальный'
-  } else if (n.includes('1') || n.includes('low') || n.includes('низк')) {
-    level = 1
-    colorClass = 'bg-slate-400'
-    tooltip = 'Низкий'
-  }
-
-  const maxCircles = Math.max(3, level)
-
-  return (
-    <span className="flex items-center gap-1" title={`${tooltip} (${name})`}>
-      {Array.from({ length: maxCircles }).map((_, i) => {
-        const isActive = i < level
-        return (
-          <span
-            key={i}
-            className={cn(
-              'h-2 w-2 rounded-full shrink-0 transition-colors duration-150',
-              isActive ? colorClass : 'bg-muted/40 border border-border/40'
-            )}
-          />
-        )
-      })}
-    </span>
-  )
 }
 
 
@@ -223,16 +160,6 @@ export default function TicketDetailsPage() {
   // noticeable delay, and without this the field sits on the old value as if the
   // click did nothing.
   const [pendingScore, setPendingScore] = useState<string | null>(null)
-  const [createSubTicketLoading, setCreateSubTicketLoading] = useState(false)
-  const [createSubTicketError, setCreateSubTicketError] = useState('')
-  const [subTitle, setSubTitle] = useState('')
-  const [subBody, setSubBody] = useState('')
-  const [subType, setSubType] = useState('')
-  const [subGroup, setSubGroup] = useState<number>(0)
-  const [subOwner, setSubOwner] = useState<number>(1)
-  const [subPriority, setSubPriority] = useState<number>(2)
-  const [subState, setSubState] = useState<number>(2)
-  const [subTime, setSubTime] = useState<number>(0)
   const [isSubTicketsOpen, setIsSubTicketsOpen] = useState(false)
   const [linkOrgModalOpen, setLinkOrgModalOpen] = useState(false)
 
@@ -283,57 +210,6 @@ export default function TicketDetailsPage() {
     enabled: !!selectedOrgId,
     staleTime: 60_000
   })
-
-  useEffect(() => {
-    if (createSubTicketModalOpen && detailsData?.ticket) {
-      setSubTitle('')
-      setSubBody('')
-      setSubType(detailsData.ticket.ticketType?.id || 'Incident')
-      setSubGroup(detailsData.ticket.group.id || 0)
-      setSubOwner(detailsData.ticket.owner.id || 1)
-      setSubPriority(detailsData.ticket.priority.id || 2)
-      setSubState(2)
-      setSubTime(0)
-      setCreateSubTicketError('')
-    }
-  }, [createSubTicketModalOpen, detailsData])
-
-  const handleCreateSubTicketSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!subTitle.trim() || !subBody.trim() || !subType || !subGroup) {
-      setCreateSubTicketError('Пожалуйста, заполните обязательные поля')
-      return
-    }
-    setCreateSubTicketLoading(true)
-    setCreateSubTicketError('')
-    try {
-      const res = await window.api.tickets.createSubTicket({
-        parentTicketId: idNum,
-        title: subTitle,
-        body: subBody,
-        groupId: subGroup,
-        ownerId: subOwner,
-        type: subType,
-        priorityId: subPriority,
-        stateId: subState,
-        timeUnit: subTime
-      })
-      if (res.ok && res.newTicketId) {
-        setCreateSubTicketModalOpen(false)
-        queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-        if (openCreatedTicket) navigate(`/dashboard/tickets/${res.newTicketId}`)
-      } else {
-        // The subtask may still have been created — refresh so the list shows it
-        // instead of leaving the modal hanging without a hint.
-        queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-        setCreateSubTicketError('Не удалось определить номер созданной подзадачи. Обновите заявку и проверьте список вложенных заявок.')
-      }
-    } catch (err: any) {
-      setCreateSubTicketError(err.message || 'Ошибка создания подзадачи')
-    } finally {
-      setCreateSubTicketLoading(false)
-    }
-  }
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -2447,195 +2323,20 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
         )}
 
         {createSubTicketModalOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-xl rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-4 max-h-[90vh]"
-            >
-              <div className="flex items-center justify-between border-b border-border pb-3">
-                <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                  <GitMerge className="h-[18px] w-[18px] text-primary" />
-                  Создание подзадачи
-                </h3>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCreateSubTicketModalOpen(false)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {createSubTicketError && (
-                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
-                  {createSubTicketError}
-                </div>
-              )}
-
-              <form onSubmit={handleCreateSubTicketSubmit} className="flex flex-col gap-4 overflow-y-auto pr-1">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Тема подзадачи</label>
-                  <input
-                    type="text"
-                    value={subTitle}
-                    onChange={(e) => setSubTitle(e.target.value)}
-                    placeholder="Введите заголовок подзадачи..."
-                    className="h-9 w-full rounded-md border border-border bg-muted/25 px-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none transition-colors"
-                    required
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Описание</label>
-                  <textarea
-                    value={subBody}
-                    onChange={(e) => setSubBody(e.target.value)}
-                    placeholder="Подробное описание задачи..."
-                    className="min-h-24 w-full resize-y rounded-md border border-border bg-muted/25 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none transition-colors"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Тип</label>
-                    <CustomSelect
-                      value={subType}
-                      options={ticketTypeOptions}
-                      onChange={(type) => setSubType(String(type.id))}
-                      placeholder="Выберите тип"
-                      renderValue={type => type ? (
-                        <span className={cn("inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-medium", getTicketTypeBadgeClass(String(type.id), type.name))}>
-                          <span className="truncate">{type.name}</span>
-                        </span>
-                      ) : <span className="text-muted-foreground">Выберите тип</span>}
-                      renderOption={type => (
-                        <span className={cn("inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-medium", getTicketTypeBadgeClass(String(type.id), type.name))}>
-                          <span className="truncate">{type.name}</span>
-                        </span>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Группа</label>
-                    <CustomSelect
-                      value={subGroup || null}
-                      options={groupOptions}
-                      onChange={(group) => setSubGroup(Number(group.id))}
-                      placeholder="Выберите группу"
-                      searchable
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Ответственный</label>
-                    <CustomSelect
-                      value={subOwner || null}
-                      options={ownerOptions}
-                      onChange={(owner) => setSubOwner(Number(owner.id))}
-                      placeholder="Не назначен"
-                      searchable
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Приоритет</label>
-                    <CustomSelect
-                      value={subPriority}
-                      options={priorityOptions}
-                      onChange={(priority) => setSubPriority(Number(priority.id))}
-                      placeholder="Выберите приоритет"
-                      renderValue={priority => priority ? (
-                        <span className="flex items-center gap-2">
-                          <PriorityCircles name={priority.name} />
-                          <span className="truncate">{priority.name}</span>
-                        </span>
-                      ) : <span className="text-muted-foreground">Выберите приоритет</span>}
-                      renderOption={priority => (
-                        <span className="flex items-center gap-2">
-                          <PriorityCircles name={priority.name} />
-                          <span className="truncate">{priority.name}</span>
-                        </span>
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Состояние</label>
-                    <CustomSelect
-                      value={subState}
-                      options={stateOptions}
-                      onChange={(state) => setSubState(Number(state.id))}
-                      placeholder="Выберите состояние"
-                      renderValue={state => state ? (
-                        <span
-                          className={cn(
-                            "inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            !filtersData?.stateColors?.[Number(state.id)] && getStateBadgeClass(state.name)
-                          )}
-                          style={filtersData?.stateColors?.[Number(state.id)] ? {
-                            backgroundColor: `${filtersData.stateColors[Number(state.id)]}15`,
-                            color: filtersData.stateColors[Number(state.id)],
-                            borderColor: `${filtersData.stateColors[Number(state.id)]}30`
-                          } : undefined}
-                        >
-                          <span className="truncate">{state.name}</span>
-                        </span>
-                      ) : <span className="text-muted-foreground">Выберите состояние</span>}
-                      renderOption={state => (
-                        <span
-                          className={cn(
-                            "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
-                            !filtersData?.stateColors?.[Number(state.id)] && getStateBadgeClass(state.name)
-                          )}
-                          style={filtersData?.stateColors?.[Number(state.id)] ? {
-                            backgroundColor: `${filtersData.stateColors[Number(state.id)]}15`,
-                            color: filtersData.stateColors[Number(state.id)],
-                            borderColor: `${filtersData.stateColors[Number(state.id)]}30`
-                          } : undefined}
-                        >
-                          <span className="truncate">{state.name}</span>
-                        </span>
-                      )}
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground">Затраченное время (минуты)</label>
-                    <div className="flex h-9 items-center rounded-md border border-border bg-muted/25 px-3 focus-within:border-primary/60 transition-colors">
-                      <input
-                        type="number"
-                        min={0}
-                        value={subTime || ''}
-                        onChange={(e) => setSubTime(Number(e.target.value))}
-                        placeholder="0"
-                        className="w-full bg-transparent text-xs text-foreground outline-none font-mono"
-                      />
-                      <span className="text-[10px] text-muted-foreground ml-2 shrink-0">мин</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 mt-4 border-t border-border pt-3">
-                  <Button variant="outline" size="sm" type="button" onClick={() => setCreateSubTicketModalOpen(false)} disabled={createSubTicketLoading}>
-                    Отмена
-                  </Button>
-                  <Button size="sm" type="submit" disabled={createSubTicketLoading}>
-                    {createSubTicketLoading && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-                    Создать подзадачу
-                  </Button>
-                </div>
-              </form>
-            </motion.div>
-          </motion.div>
+          <CreateSubTicketModal
+            parent={ticket}
+            ticketTypeOptions={ticketTypeOptions}
+            groupOptions={groupOptions}
+            ownerOptions={ownerOptions}
+            priorityOptions={priorityOptions}
+            stateOptions={stateOptions}
+            stateColors={filtersData?.stateColors}
+            onClose={() => setCreateSubTicketModalOpen(false)}
+            onCreated={newTicketId => {
+              queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+              if (newTicketId && openCreatedTicket) navigate(`/dashboard/tickets/${newTicketId}`)
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
