@@ -46,6 +46,7 @@ export function CustomSelect<T extends { id: number | string; name: string }>({
   renderOption?: (value: T, active: boolean) => ReactNode
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const portalRef = useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 })
@@ -72,8 +73,9 @@ export function CustomSelect<T extends { id: number | string; name: string }>({
     
     const handlePointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        const portalContainer = document.getElementById('custom-select-portal-root')
-        if (!portalContainer?.contains(event.target as Node)) {
+        // By ref, not by id: several instances of the control can be mounted at
+        // once (tabs stay alive), and getElementById would answer with the wrong one.
+        if (!portalRef.current?.contains(event.target as Node)) {
           setOpen(false)
           setQuery('')
         }
@@ -99,7 +101,7 @@ export function CustomSelect<T extends { id: number | string; name: string }>({
       </button>
       {open && createPortal(
         <div
-          id="custom-select-portal-root"
+          ref={portalRef}
           style={{
             position: 'absolute',
             top: `${coords.top}px`,
@@ -262,6 +264,7 @@ export function CustomMultiSelect<T extends { id: number | string; name: string 
 
 export function CustomDateTimePicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const portalRef = useRef<HTMLDivElement | null>(null)
   const hasValue = !!value
   const baseDate = value ? new Date(value) : new Date()
   const validDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate
@@ -299,8 +302,7 @@ export function CustomDateTimePicker({ value, onChange }: { value: string; onCha
     window.addEventListener('scroll', reposition, true)
     const handlePointerDown = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
-        const portal = document.getElementById('ticket-datetime-portal')
-        if (!portal?.contains(event.target as Node)) setOpen(false)
+        if (!portalRef.current?.contains(event.target as Node)) setOpen(false)
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
@@ -354,7 +356,7 @@ export function CustomDateTimePicker({ value, onChange }: { value: string; onCha
 
       {open && createPortal(
         <div
-          id="ticket-datetime-portal"
+          ref={portalRef}
           style={{ position: 'fixed', left: coords.left, top: coords.top, bottom: coords.bottom, width: 288 }}
           className="z-[9999] rounded-lg border border-border bg-card p-3 shadow-xl"
         >
