@@ -1,4 +1,4 @@
-import { ipcMain, net, app, session, BrowserWindow } from 'electron'
+import { ipcMain, net, app, session } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import logger from 'electron-log/main'
@@ -657,11 +657,15 @@ interface Meta {
   users: Record<number, string>
   usersLoaded: Record<number, boolean>
   agents: Record<number, boolean>
+  /** Zammad's `active` flag: disabled accounts must not be offered in filters. */
+  usersActive: Record<number, boolean>
+  /** login/email, used to tell apart two accounts with the same display name. */
+  userLogins: Record<number, string>
   userImages: Record<number, string | null>
   userAvatars: Record<number, string | null>
 }
 
-const meta: Meta = { states: {}, priorities: {}, groups: {}, ticketTypes: {}, iikoReasons: {}, iikoReasonField: 'ticket_reason', tags: {}, users: {}, usersLoaded: {}, agents: {}, userImages: {}, userAvatars: {} }
+const meta: Meta = { states: {}, priorities: {}, groups: {}, ticketTypes: {}, iikoReasons: {}, iikoReasonField: 'ticket_reason', tags: {}, users: {}, usersLoaded: {}, agents: {}, usersActive: {}, userLogins: {}, userImages: {}, userAvatars: {} }
 let metaLoaded = false
 let cachedUserId: number | null = null
 let clientsIndexCache: { expiresAt: number; index: ClientsTicketIndex } | null = null
@@ -1345,6 +1349,9 @@ async function ensureUsersLoaded(userIds: number[]): Promise<void> {
           const userId = Number(u.id)
           meta.users[userId] = cleanUserName(u.firstname, u.lastname, u.login, userId)
           meta.usersLoaded[userId] = true
+          meta.usersActive[userId] = u.active !== false
+          const login = String(u.login || u.email || '').trim()
+          if (login) meta.userLogins[userId] = login
           const email = String(u.email || u.login || '').toLowerCase()
           const isAgentRole = Array.isArray(u.roles) && u.roles.some((r: any) => {
             const nr = String(r).toLowerCase()
@@ -1404,10 +1411,13 @@ function registerUsersFromAssets(assets: any): void {
   if (assets && assets.User) {
     for (const [id, u] of Object.entries(assets.User)) {
       const userId = Number(id)
-      const user = u as { firstname?: string; lastname?: string; login?: string; email?: string; roles?: string[]; image?: string | null }
+      const user = u as { firstname?: string; lastname?: string; login?: string; email?: string; roles?: string[]; image?: string | null; active?: boolean }
       if (user) {
         meta.users[userId] = cleanUserName(user.firstname, user.lastname, user.login, userId)
         meta.usersLoaded[userId] = true
+        meta.usersActive[userId] = user.active !== false
+        const login = String(user.login || user.email || '').trim()
+        if (login) meta.userLogins[userId] = login
         const email = String(user.email || user.login || '').toLowerCase()
         const isAgentRole = Array.isArray(user.roles) && user.roles.some(r => {
           const nr = String(r).toLowerCase()
@@ -1427,11 +1437,43 @@ function registerUsersFromAssets(assets: any): void {
   }
 }
 
+// One person can have more than one live account in Zammad, and both would show
+// up in the owner picker as the same name with nothing to choose between them.
+// The accounts are kept — tickets do hang on both — but the duplicates get their
+// login appended so it is clear which is which.
+function dedupeAgentNames(agents: { id: number; name: string }[]): { id: number; name: string }[] {
+  const byName = new Map<string, { id: number; name: string }[]>()
+  for (const agent of agents) {
+    const key = agent.name.trim().toLowerCase()
+    const list = byName.get(key)
+    if (list) list.push(agent)
+    else byName.set(key, [agent])
+  }
+
+  const duplicated = Array.from(byName.values()).filter(list => list.length > 1)
+  if (duplicated.length > 0) {
+    logger.info('Одноимённые сотрудники в списке ответственных:', duplicated.map(list => ({
+      name: list[0].name,
+      ids: list.map(agent => agent.id)
+    })))
+  }
+
+  return agents.map(agent => {
+    const twins = byName.get(agent.name.trim().toLowerCase()) ?? []
+    if (twins.length < 2) return agent
+    const login = meta.userLogins[agent.id] || String(agent.id)
+    return { id: agent.id, name: `${agent.name} (${login})` }
+  })
+}
+
 function registerUser(user: any, forceAgent = false): void {
   const userId = Number(user?.id)
   if (!userId) return
   meta.users[userId] = cleanUserName(user.firstname, user.lastname, user.login, userId)
   meta.usersLoaded[userId] = true
+  meta.usersActive[userId] = user.active !== false
+  const login = String(user.login || user.email || '').trim()
+  if (login) meta.userLogins[userId] = login
   const email = String(user.email || user.login || '').toLowerCase()
   const isAgentRole = Array.isArray(user.roles) && user.roles.some((r: any) => {
     const nr = String(r).toLowerCase()
@@ -3739,14 +3781,15 @@ export function setupTicketsIpc(): void {
     const ticketTypes = Object.entries(meta.ticketTypes).map(([id, name]) => ({ id, name }))
     const iikoReasons = Object.entries(meta.iikoReasons).map(([id, name]) => ({ id, name }))
     const tags = Object.entries(meta.tags).map(([id, name]) => ({ id, name }))
-    const agents = Object.entries(meta.users)
-      .filter(([id]) => meta.agents[Number(id)])
-      .map(([id, name]) => ({ id: Number(id), name }))
-      .filter(a => {
-        const n = a.name.trim()
-        return n && /[a-zA-Zа-яА-Я0-9]/.test(n)
-      })
-      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+    const agents = dedupeAgentNames(
+      Object.entries(meta.users)
+        .filter(([id]) => meta.agents[Number(id)] && meta.usersActive[Number(id)] !== false)
+        .map(([id, name]) => ({ id: Number(id), name }))
+        .filter(a => {
+          const n = a.name.trim()
+          return n && /[a-zA-Zа-яА-Я0-9]/.test(n)
+        })
+    ).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
 
     const stateColors = readStateColorsWithDefaults()
 
@@ -3856,8 +3899,8 @@ export function setupTicketsIpc(): void {
     return fetchTicketAttachment(ticketId, articleId, attachmentId)
   })
 
-  ipcMain.handle('tickets:export', async (event, ticketId: number, options: TicketExportOptions) => {
-    return exportTicket(BrowserWindow.fromWebContents(event.sender), ticketId, options)
+  ipcMain.handle('tickets:export', async (_event, ticketId: number, options: TicketExportOptions) => {
+    return exportTicket(ticketId, options)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {

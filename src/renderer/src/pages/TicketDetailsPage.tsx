@@ -829,6 +829,16 @@ function TicketExportModal({ ticketId, onClose }: { ticketId: number; onClose: (
 
   const nothingSelected = !withText && !withImages && !withFiles
 
+  // The overlay covers the whole window, so it must always be dismissable —
+  // otherwise a modal left standing looks exactly like a frozen app.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const handleSave = async () => {
     setSaving(true)
     setError('')
@@ -860,12 +870,14 @@ function TicketExportModal({ ticketId, onClose }: { ticketId: number; onClose: (
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      onClick={() => { if (!saving) onClose() }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
+        onClick={event => event.stopPropagation()}
         className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-border pb-3">
