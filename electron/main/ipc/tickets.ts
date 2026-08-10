@@ -2667,24 +2667,19 @@ function normalizeJsonCalls(payload: any, section: CallSectionKey, sourceUrl: st
 
 async function fetchCallsFromUrl(url: string, section: CallSectionKey): Promise<CallRecord[]> {
   const absoluteUrl = absoluteClientsUrl(url)
-  logger.info('PhoneCalls fetch start:', { section, url: absoluteUrl })
   const resp = await net.fetch(absoluteUrl, {
     session: wrapperSession(),
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
   } as any)
   const contentType = resp.headers.get('content-type') || ''
-  logger.info('PhoneCalls fetch response:', { section, url: absoluteUrl, status: resp.status, contentType })
-  if (!resp.ok) return []
+  // A 404 here is the normal answer for an address clients does not serve, so
+  // it is not worth a line in the log; anything else is.
+  if (!resp.ok) {
+    if (resp.status !== 404) logger.warn('PhoneCalls fetch failed:', { section, url: absoluteUrl, status: resp.status })
+    return []
+  }
 
   const body = await resp.text()
-  logger.info('PhoneCalls fetch body:', {
-    section,
-    url: absoluteUrl,
-    length: body.length,
-    hasTableSm: /table-sm/i.test(body),
-    hasGetCallRecord: /GetCallRecord/i.test(body),
-    startsWith: body.slice(0, 120).replace(/\s+/g, ' ')
-  })
   if (contentType.includes('application/json') || body.trim().startsWith('{') || body.trim().startsWith('[')) {
     try {
       return normalizeJsonCalls(JSON.parse(body), section, absoluteUrl)
@@ -2703,7 +2698,6 @@ async function fetchPhoneCalls(section: CallSectionKey, query: string, page: num
   url.searchParams.set('page', String(page))
   url.searchParams.set('onlyMy', section === 'mine' ? 'true' : 'false')
   const records = await fetchCallsFromUrl(url.toString(), section)
-  logger.info('PhoneCalls section result:', { section, records: records.length, query, page, perPage })
   return records.map(record => ({ ...record, section }))
 }
 
@@ -2720,9 +2714,17 @@ function parseCallDate(str: string): Date | null {
   )
 }
 
+// clients answers only one of the addresses below; the rest are 404. Probing all
+// of them on every refresh meant dozens of pointless requests a minute, so the
+// one that worked is remembered and tried first.
+let knownCurrentCallsPath: string | null = null
+
 async function fetchCurrentPhoneCalls(query: string, page: number, perPage: number): Promise<CallRecord[]> {
-  const discovered = await discoverCurrentPhoneCallsUrls()
+  const discovered = knownCurrentCallsPath ? [] : await discoverCurrentPhoneCallsUrls()
   const candidates = [
+    ...(knownCurrentCallsPath
+      ? [`${knownCurrentCallsPath}?callsPerPage=${perPage}&query=${encodeURIComponent(query)}&page=${page}`]
+      : []),
     ...discovered,
     `/PhoneCalls/Current?callsPerPage=${perPage}&query=${encodeURIComponent(query)}&page=${page}`,
     `/PhoneCalls/Active?callsPerPage=${perPage}&query=${encodeURIComponent(query)}&page=${page}`,
@@ -2756,10 +2758,16 @@ async function fetchCurrentPhoneCalls(query: string, page: number, perPage: numb
           }
           return true
         })
-      if (filtered.length > 0) return filtered
+      if (filtered.length > 0) {
+        knownCurrentCallsPath = url.split('?')[0]
+        return filtered
+      }
     }
   }
 
+  // Nothing answered: forget the remembered address so the next refresh looks
+  // for it again instead of asking a dead endpoint forever.
+  knownCurrentCallsPath = null
   return []
 }
 
@@ -2776,12 +2784,7 @@ async function discoverCurrentPhoneCallsUrls(): Promise<string[]> {
     const urlLikes = extractUrlLikeStrings(html)
     const candidates = Array.from(new Set([...links, ...urlLikes])).filter(looksLikeCurrentCallsUrl)
 
-    logger.info('PhoneCalls current discovery:', {
-      candidates,
-      phoneCallsUrls: Array.from(new Set([...links, ...urlLikes])).filter(url => url.includes('PhoneCalls')).slice(0, 50),
-      hasSignalR: /signalr|hubconnection|hubconnectionbuilder|Hub/i.test(html),
-      currentMentions: (html.match(/current|active|live|online|текущ|актив/gi) ?? []).slice(0, 30)
-    })
+    logger.info('PhoneCalls current discovery:', { candidates })
 
     return candidates
   } catch (err) {
