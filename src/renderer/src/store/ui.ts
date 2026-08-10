@@ -16,6 +16,18 @@ function getStoredScoreOverride(): boolean {
 const AFTER_COMMENT_SUBMIT_KEY = 'ui.afterCommentSubmitAction'
 const HIDE_SCROLL_DOWN_ARROW_KEY = 'ui.hideScrollDownArrow'
 const OPEN_CREATED_TICKET_KEY = 'ui.openCreatedTicket'
+const SUGGEST_STATE_KEY = 'ui.suggestStateOnSend'
+const SUGGEST_REASON_KEY = 'ui.suggestReasonOnSend'
+
+// Both suggestions are on by default: they only appear when something is
+// actually missing, so they cost nothing until they are useful.
+function getStoredSuggestState(): boolean {
+  return window.localStorage.getItem(SUGGEST_STATE_KEY) !== '0'
+}
+
+function getStoredSuggestReason(): boolean {
+  return window.localStorage.getItem(SUGGEST_REASON_KEY) !== '0'
+}
 
 // Opening the new ticket is the long-standing behaviour, so only an explicit
 // '0' turns it off.
@@ -108,6 +120,12 @@ interface UIState {
   setHideScrollDownArrow: (hide: boolean) => void
   openCreatedTicket: boolean
   setOpenCreatedTicket: (open: boolean) => void
+  /** Offer the ticket state in the send dialog when it was not changed. */
+  suggestStateOnSend: boolean
+  setSuggestStateOnSend: (enabled: boolean) => void
+  /** Offer the iiko reason in the send dialog when it is empty. */
+  suggestReasonOnSend: boolean
+  setSuggestReasonOnSend: (enabled: boolean) => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -120,6 +138,8 @@ export const useUIStore = create<UIState>((set) => ({
   afterCommentSubmitAction: getStoredAfterCommentSubmitAction(),
   hideScrollDownArrow: getStoredHideScrollDownArrow(),
   openCreatedTicket: getStoredOpenCreatedTicket(),
+  suggestStateOnSend: getStoredSuggestState(),
+  suggestReasonOnSend: getStoredSuggestReason(),
   isQuickTicketOpen: false,
   resolvedTheme: 'dark',
   sidebarCollapsed: false,
@@ -190,6 +210,16 @@ export const useUIStore = create<UIState>((set) => ({
   setHideScrollDownArrow: (hide) => {
     window.localStorage.setItem(HIDE_SCROLL_DOWN_ARROW_KEY, hide ? '1' : '0')
     set({ hideScrollDownArrow: hide })
+  },
+
+  setSuggestStateOnSend: (enabled) => {
+    window.localStorage.setItem(SUGGEST_STATE_KEY, enabled ? '1' : '0')
+    set({ suggestStateOnSend: enabled })
+  },
+
+  setSuggestReasonOnSend: (enabled) => {
+    window.localStorage.setItem(SUGGEST_REASON_KEY, enabled ? '1' : '0')
+    set({ suggestReasonOnSend: enabled })
   },
 
   setOpenCreatedTicket: (open) => {
