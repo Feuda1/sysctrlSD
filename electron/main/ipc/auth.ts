@@ -334,7 +334,34 @@ function clientsValidationMessage(html: string): string {
   return match ? stripTags(match[1]) : ''
 }
 
-export async function loginWrapper(email: string, password: string): Promise<AppUser> {
+// clients refuses a rejected account for a while after a burst of attempts, so
+// automatic re-logins must back off instead of hammering the form on every
+// request and keeping the account locked. A login the user asked for explicitly
+// always goes through — that is how they recover after fixing the password.
+const LOGIN_RETRY_COOLDOWN = 60_000
+let lastLoginFailure: { at: number; message: string } | null = null
+
+export async function loginWrapper(
+  email: string,
+  password: string,
+  opts: { manual?: boolean } = {}
+): Promise<AppUser> {
+  if (opts.manual) {
+    lastLoginFailure = null
+  } else if (lastLoginFailure && Date.now() - lastLoginFailure.at < LOGIN_RETRY_COOLDOWN) {
+    throw new Error(lastLoginFailure.message)
+  }
+
+  try {
+    return await performLoginWrapper(email, password)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    lastLoginFailure = { at: Date.now(), message }
+    throw err
+  }
+}
+
+async function performLoginWrapper(email: string, password: string): Promise<AppUser> {
   const ses = wrapperSession()
 
   await ses.clearStorageData({ storages: ['cookies'] })
@@ -368,7 +395,16 @@ export async function loginWrapper(email: string, password: string): Promise<App
   // net.fetch does not always fill in the final url, so the answer itself is what
   // decides: clients re-renders the login form when the credentials are refused.
   const loginHtml = await loginResp.text()
-  if (loginResp.url.includes('/Account/Login') || loginResp.url.includes('returnUrl') || isClientsLoginPage(loginHtml)) {
+  const looksLikeLoginForm = isClientsLoginPage(loginHtml)
+  logger.info('Ответ входа clients:', {
+    status: loginResp.status,
+    url: loginResp.url,
+    length: loginHtml.length,
+    looksLikeLoginForm,
+    validation: clientsValidationMessage(loginHtml).slice(0, 120)
+  })
+
+  if (loginResp.url.includes('/Account/Login') || loginResp.url.includes('returnUrl') || looksLikeLoginForm) {
     const validation = clientsValidationMessage(loginHtml)
     throw new Error(validation || 'Неверный логин или пароль')
   }
@@ -604,7 +640,7 @@ export function setupAuthIpc(): void {
   ipcMain.handle('auth:login', async (_event, email: string, password: string) => {
     logger.info('Login attempt:', email)
 
-    const user = await loginWrapper(email, password)
+    const user = await loginWrapper(email, password, { manual: true })
 
     const stored = readStored()
     let finalUser = user
