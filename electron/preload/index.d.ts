@@ -77,8 +77,11 @@ declare global {
           pendingTime?: string | null
           timeUnit?: number | null
           attachments?: { filename: string; data: string; mimeType: string }[]
+          uploadId?: string
         }) => Promise<any>
         getAttachment: (ticketId: number, articleId: number, attachmentId: number) => Promise<{ dataUrl: string; contentType: string }>
+        cancelUpload: (uploadId: string) => Promise<boolean>
+        onUploadProgress: (callback: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void
         setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean) => Promise<{ ok: true }>
         exportTicket: (
           ticketId: number,
