@@ -22,6 +22,15 @@ import {
 } from '../clients/parse'
 import { dateRangeQuery, isInDateRange, zammadSearchValue } from '../zammad/query'
 import {
+  getAvailableSounds,
+  readNotificationHistory,
+  readNotificationSettings,
+  soundsDir,
+  writeNotificationHistory,
+  writeNotificationSettings
+} from '../notifications/storage'
+export { readNotificationSettings }
+import {
   buildZammadQuery as buildZammadQueryFor,
   filterTicketsLocally as filterTicketsLocallyWith,
   ticketReasonIds,
@@ -37,7 +46,7 @@ function buildZammadQuery(cond: Conditions, myUserId: number | null): string {
 function filterTicketsLocally(tickets: any[], cond: Conditions, myUserId: number | null): any[] {
   return filterTicketsLocallyWith(tickets, cond, myUserId, meta.iikoReasonField)
 }
-import type { NotificationSettings, NotificationItem } from '../../preload/index'
+import type { NotificationItem } from '../../preload/index'
 
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
 const WRAPPER_BASE = 'https://clients.denvic.ru'
@@ -4504,95 +4513,6 @@ function findSelectedOption(html: string, selectId: string): string {
   return ''
 }
 
-function notificationSettingsPath(): string {
-  return join(app.getPath('userData'), 'notifications_settings.json')
-}
-
-function notificationHistoryPath(): string {
-  return join(app.getPath('userData'), 'notifications_history.json')
-}
-
-function soundsDir(): string {
-  return join(app.getPath('userData'), 'notification_sounds')
-}
-
-export function readNotificationSettings(): NotificationSettings {
-  const defaultSettings: NotificationSettings = {
-    myTicketsEnabled: true,
-    myTicketsSound: 'synth-chime',
-    myTicketsVolume: 1.0,
-    myTicketsSoundEnabled: true,
-    myTicketsToastEnabled: true,
-    scoreEnabled: true,
-    rules: []
-  }
-  try {
-    const p = notificationSettingsPath()
-    if (existsSync(p)) {
-      return JSON.parse(readFileSync(p, 'utf8'))
-    }
-  } catch (err) {
-    logger.error(err)
-  }
-  return defaultSettings
-}
-
-function writeNotificationSettings(settings: NotificationSettings): void {
-  try {
-    const p = notificationSettingsPath()
-    writeFileSync(p, JSON.stringify(settings, null, 2), 'utf8')
-  } catch (err) {
-    logger.error(err)
-  }
-}
-
-function readNotificationHistory(): NotificationItem[] {
-  try {
-    const p = notificationHistoryPath()
-    if (existsSync(p)) {
-      return JSON.parse(readFileSync(p, 'utf8'))
-    }
-  } catch (err) {
-    logger.error(err)
-  }
-  return []
-}
-
-function writeNotificationHistory(history: NotificationItem[]): void {
-  try {
-    const p = notificationHistoryPath()
-    writeFileSync(p, JSON.stringify(history, null, 2), 'utf8')
-  } catch (err) {
-    logger.error(err)
-  }
-}
-
-function getAvailableSounds() {
-  const sounds: { name: string; dataUrl: string | null }[] = [
-    { name: 'synth-chime', dataUrl: null }
-  ]
-  try {
-    const dir = soundsDir()
-    if (existsSync(dir)) {
-      const fs = require('fs')
-      const files = fs.readdirSync(dir)
-      files.forEach((file: string) => {
-        const p = join(dir, file)
-        const buf = fs.readFileSync(p)
-        let mime = 'audio/mpeg'
-        if (file.endsWith('.wav')) mime = 'audio/wav'
-        if (file.endsWith('.ogg')) mime = 'audio/ogg'
-        sounds.push({
-          name: file,
-          dataUrl: `data:${mime};base64,${buf.toString('base64')}`
-        })
-      })
-    }
-  } catch (err) {
-    logger.error(err)
-  }
-  return sounds
-}
 
 let pollerInterval: any = null
 const checkedTickets = new Map<number, { updatedAt: string; articleCount: number; stateId: number; ownerId: number | null; groupId: number; score: string }>()
