@@ -3417,6 +3417,35 @@ async function setTicketScore(ticketId: number, score: string, ignoreClientsRigh
   return { ok: true }
 }
 
+async function setTicketTitle(ticketId: number, title: string): Promise<{ ok: true; title: string }> {
+  const trimmed = title.trim()
+  if (!trimmed) {
+    throw new Error('Заголовок не может быть пустым')
+  }
+  // Zammad хранит заголовок строкой без ограничения, но в списках он обрезается,
+  // а перенос строки ломает вёрстку — поэтому в одну строку и в разумный предел.
+  const normalized = trimmed.replace(/\s+/g, ' ').slice(0, 250)
+
+  const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${ticketId}`, {
+    method: 'PUT',
+    headers: zHeaders(getToken()),
+    body: JSON.stringify({ title: normalized })
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка изменения заголовка:', { status: resp.status, text: text.slice(0, 500) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось изменить заголовок'))
+  }
+
+  await markTicketSelfUpdated(ticketId)
+  ticketHtmlCache.delete(ticketId)
+  clearTicketCaches(ticketId)
+  notifyFrontend('tickets:ticket-updated', ticketId)
+  notifyFrontend('tickets:list-updated')
+  return { ok: true, title: normalized }
+}
+
 async function searchUsers(query: string): Promise<MetadataItem[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
@@ -3815,6 +3844,10 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:setScore', async (_event, ticketId: number, score: string, ignoreClientsRight?: boolean) => {
     return setTicketScore(ticketId, score, ignoreClientsRight === true)
+  })
+
+  ipcMain.handle('tickets:setTitle', async (_event, ticketId: number, title: string) => {
+    return setTicketTitle(ticketId, title)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
-import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useUIStore } from '@/store/ui'
@@ -334,6 +334,46 @@ export default function TicketDetailsPage() {
     })
     if (arrived) setPendingComment(null)
   }, [articles, pendingComment])
+
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [titleError, setTitleError] = useState('')
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
+
+  const updateTitleMutation = useMutation({
+    mutationFn: (title: string) => window.api.tickets.setTitle(idNum, title),
+    onSuccess: () => {
+      setIsEditingTitle(false)
+      setTitleError('')
+      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+    },
+    onError: (error: unknown) => {
+      setTitleError(error instanceof Error ? error.message : 'Не удалось изменить заголовок')
+    }
+  })
+
+  const startTitleEdit = (current: string) => {
+    setTitleDraft(current)
+    setTitleError('')
+    setIsEditingTitle(true)
+    // Поле появляется в этом же кадре, фокус ставится после отрисовки.
+    window.setTimeout(() => titleInputRef.current?.select(), 0)
+  }
+
+  const submitTitleEdit = (current: string) => {
+    const next = titleDraft.trim()
+    if (!next) {
+      setTitleError('Заголовок не может быть пустым')
+      return
+    }
+    if (next === current.trim()) {
+      setIsEditingTitle(false)
+      setTitleError('')
+      return
+    }
+    updateTitleMutation.mutate(next)
+  }
 
   const addCommentMutation = useMutation({
     mutationFn: async ({ draft, timeUnit, includeArticle, uploadId }: CommentSubmission & { uploadId?: string }) => {
@@ -1174,11 +1214,75 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               <div className="border-t border-border/50 p-5">
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <div className="flex flex-col gap-1">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="text-[10px] font-bold uppercase tracking-wide text-primary">Обращение</span>
-                      <h1 className="text-lg font-bold text-foreground leading-7">
-                        {ticket.clientNumber ? `[${ticket.clientNumber}] ` : ''}{ticket.title}
-                      </h1>
+                      {isEditingTitle ? (
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-2">
+                            {ticket.clientNumber && (
+                              <span className="text-lg font-bold leading-7 text-muted-foreground shrink-0">
+                                [{ticket.clientNumber}]
+                              </span>
+                            )}
+                            <input
+                              ref={titleInputRef}
+                              autoFocus
+                              value={titleDraft}
+                              onChange={event => setTitleDraft(event.target.value)}
+                              onKeyDown={event => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  submitTitleEdit(ticket.title)
+                                }
+                                if (event.key === 'Escape') {
+                                  event.preventDefault()
+                                  setIsEditingTitle(false)
+                                  setTitleError('')
+                                }
+                              }}
+                              disabled={updateTitleMutation.isPending}
+                              className="min-w-0 flex-1 rounded-lg border border-primary/60 bg-muted/25 px-2 py-1 text-lg font-bold leading-7 text-foreground outline-none disabled:opacity-60"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => submitTitleEdit(ticket.title)}
+                              disabled={updateTitleMutation.isPending}
+                              title="Сохранить"
+                              className="shrink-0 rounded-md p-1.5 text-primary transition-colors hover:bg-accent disabled:opacity-60"
+                            >
+                              {updateTitleMutation.isPending
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <Check className="h-4 w-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setIsEditingTitle(false); setTitleError('') }}
+                              disabled={updateTitleMutation.isPending}
+                              title="Отменить"
+                              className="shrink-0 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                          {titleError && <span className="text-xs text-destructive">{titleError}</span>}
+                        </div>
+                      ) : (
+                        // Карандаш проявляется при наведении на строку — чтобы он не
+                        // мозолил глаза, но и не прятался от того, кто его ищет.
+                        <div className="group/title flex items-start gap-2">
+                          <h1 className="text-lg font-bold text-foreground leading-7">
+                            {ticket.clientNumber ? `[${ticket.clientNumber}] ` : ''}{ticket.title}
+                          </h1>
+                          <button
+                            type="button"
+                            onClick={() => startTitleEdit(ticket.title)}
+                            title="Изменить заголовок"
+                            className="mt-0.5 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/title:opacity-100"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5">
