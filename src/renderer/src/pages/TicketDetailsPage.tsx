@@ -62,7 +62,7 @@ interface CommentSubmission {
 const PENDING_ARTICLE_ID = -1
 
 /** Stands in for the timestamp until the message is delivered. */
-function PendingStatus({ failed }: { failed: boolean }) {
+function PendingStatus({ failed, bytes }: { failed: boolean; bytes: number }) {
   if (failed) {
     return (
       <span className="flex items-center gap-1 text-destructive">
@@ -74,7 +74,9 @@ function PendingStatus({ failed }: { failed: boolean }) {
   return (
     <span className="flex items-center gap-1 opacity-70">
       <Loader2 className="h-3 w-3 animate-spin" />
-      Отправляется…
+      {/* Attachments travel inside the same request, so their size explains the
+          wait — there is no per-file progress to show. */}
+      {bytes > 0 ? `Отправляется… ${formatAttachmentSize(bytes)}` : 'Отправляется…'}
     </span>
   )
 }
@@ -692,6 +694,8 @@ export default function TicketDetailsPage() {
   // as the last entry of the thread. Nothing is swapped when the server answers:
   // the bubble simply stops saying "Отправляется…" and shows its time, so the
   // list never reflows.
+  const pendingAttachmentBytes = (pendingComment?.draft.attachments ?? []).reduce((sum, item) => sum + (item.size || 0), 0)
+
   const displayArticles: TicketArticle[] = pendingComment
     ? [...chatArticles, {
         id: PENDING_ARTICLE_ID,
@@ -1286,7 +1290,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-zinc-550 dark:text-zinc-400 font-mono">
                             <ChannelIcon channel={isNote ? 'note' : article.type} />
-                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} /> : formatTicketDate(article.createdAt)}</span>
+                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} /> : formatTicketDate(article.createdAt)}</span>
                           </div>
                         </div>
 
@@ -1374,7 +1378,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                               {isNote && <span className="text-amber-500 dark:text-amber-400 font-semibold ml-1">(Внутренняя заметка)</span>}
                             </span>
                           </div>
-                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} /> : formatTicketDate(article.createdAt)}</span>
+                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} /> : formatTicketDate(article.createdAt)}</span>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />
