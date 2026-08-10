@@ -4,6 +4,23 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import logger from 'electron-log/main'
 import { isWrapperSessionAlive, loginWrapper, readStored, writeStored, setZammadTokenCache, markClientsSessionAlive, markClientsSessionDead } from './auth'
 import { exportTicket, type TicketExportOptions } from '../ticketExport'
+import {
+  attrValue,
+  clientsFormErrorMessage,
+  decodeHtml,
+  extractSelectedOptions,
+  firstMatchText,
+  isClientsCreateForm,
+  isClientsLoginPage,
+  labelValueFromHtml,
+  normalizeChannelLabel,
+  parseClientsScoreControl,
+  parseTicketIdValue,
+  stripHtml,
+  ticketIdFromUrl,
+  CLIENTS_CREATE_FORM_RE,
+} from '../clients/parse'
+import { dateRangeQuery, isInDateRange, zammadSearchValue } from '../zammad/query'
 import type { NotificationSettings, NotificationItem } from '../../preload/index'
 
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
@@ -855,61 +872,6 @@ function wrapperSession() {
   return session.fromPartition(WRAPPER_PARTITION)
 }
 
-function decodeHtml(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(parseInt(code, 10)))
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-}
-
-function stripHtml(value: string): string {
-  return decodeHtml(value.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]*>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function firstMatchText(html: string, regex: RegExp): string | null {
-  const match = html.match(regex)
-  if (!match) return null
-  const text = stripHtml(match[1] ?? '')
-  return text || null
-}
-
-function labelValueFromHtml(html: string, label: string): string | null {
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return firstMatchText(
-    html,
-    new RegExp(`<b>\\s*${escapedLabel}\\s*<\\/b>\\s*:\\s*([\\s\\S]*?)<\\/li>`, 'i')
-  )
-}
-
-function normalizeChannelLabel(channel: string | null | undefined): string | null {
-  if (!channel) return null
-  const text = channel.trim()
-  if (!text) return null
-  const normalized = text.toLowerCase()
-  if (normalized === 'fax') return 'Telegram-bot'
-  if (normalized.includes('telegram-bot') || normalized.includes('telegram bot')) return 'Telegram-bot'
-  return text
-}
-
-function extractSelectedOptions(html: string, selectId: string): string[] {
-  const selectMatch = html.match(new RegExp(`<select\\b[^>]*\\bid=["']${selectId}["'][^>]*>([\\s\\S]*?)<\\/select>`, 'i'))
-  if (!selectMatch) return []
-  const options = Array.from(selectMatch[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi))
-  return options
-    .filter(match => /\bselected\b/i.test(match[1]))
-    .map(match => attrValue(match[1], 'value') ?? stripHtml(match[2]))
-    .map(value => value.trim())
-    .filter(value => value && value !== '-')
-}
-
 /**
  * Reads the "БАЛЛЫ ЗА ЗАЯВКУ" select off a clients ticket page. The right to
  * award points lives in clients, and it shows in the markup: an agent who may
@@ -918,47 +880,6 @@ function extractSelectedOptions(html: string, selectId: string): string[] {
  */
 // One line per app run: enough to tell a missing right from a parsing miss.
 let scoreParseLogged = false
-
-function parseClientsScoreControl(html: string): {
-  options: { value: string; label: string }[]
-  value: string | null
-  canEdit: boolean
-} {
-  const empty = { options: [] as { value: string; label: string }[], value: null, canEdit: false }
-  if (!html) return empty
-
-  // Case-sensitive and anchored to a <label>: the ticket history table also
-  // contains the words "Баллы за заявку", and matching that row picked up
-  // whatever select came next — the article type list.
-  const labelMatch = /<label\b[^>]*>\s*БАЛЛЫ ЗА ЗАЯВКУ\s*<\/label>/.exec(html)
-  if (!labelMatch) return empty
-
-  const selectMatch = html.slice(labelMatch.index).match(/<select\b([^>]*)>([\s\S]*?)<\/select>/i)
-  if (!selectMatch) return empty
-
-  const attrs = selectMatch[1]
-  const options: { value: string; label: string }[] = []
-  let value: string | null = null
-
-  for (const option of selectMatch[2].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)) {
-    const optionValue = option[1].match(/value\s*=\s*"([^"]*)"/i)?.[1]
-    if (optionValue === undefined) continue
-    const label = stripHtml(option[2]).trim() || optionValue
-    options.push({ value: optionValue, label })
-    if (/\bselected\b/i.test(option[1])) value = optionValue
-  }
-
-  // Points are numeric codes like "00", "00.5", "01.0". Anything else means the
-  // select found is not the score one, and showing it would be worse than
-  // showing nothing.
-  const looksLikeScores = options.length > 0 && options.every(option => /^\d{1,2}(\.\d)?$/.test(option.value))
-  if (!looksLikeScores) {
-    logger.warn('Список баллов на странице clients не распознан:', options.slice(0, 4))
-    return empty
-  }
-
-  return { options, value, canEdit: !/\bdisabled\b/i.test(attrs) }
-}
 
 function parseClientsTicketDetails(html: string): ClientsTicketDetailsMeta {
   const decodedHtml = decodeHtml(html)
@@ -1042,12 +963,6 @@ function parseClientsTicketDetails(html: string): ClientsTicketDetailsMeta {
     tags: selectedTags.length > 0 ? selectedTags : undefined,
     subTickets: subTickets.length > 0 ? subTickets : undefined
   }
-}
-
-function attrValue(tag: string, attr: string): string | null {
-  const match = tag.match(new RegExp(`\\s${attr}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'))
-  const value = match?.[1] ?? match?.[2] ?? match?.[3]
-  return value ? decodeHtml(value) : null
 }
 
 function getToken(): string {
@@ -1848,10 +1763,6 @@ function applyClientsNumbers(tickets: Ticket[], index: ClientsTicketIndex): Tick
   }))
 }
 
-function zammadSearchValue(value: string): string {
-  const raw = String(value)
-  return /^[a-z0-9_.:-]+$/i.test(raw) ? raw : `"${raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-}
 
 function getRawIikoReasonValue(raw: any): any {
   return raw?.[meta.iikoReasonField] ?? raw?.ticket_reason ?? raw?.ticketreason ?? raw?.TicketReason ?? raw?.ticketReason
@@ -2073,40 +1984,9 @@ async function getActiveTickets(myUserId: number, token: string): Promise<{ tick
   }
 }
 
-// Local day boundaries: the user picks days in their own timezone, while Zammad
-// compares against UTC timestamps.
-function dayRangeBounds(from?: string, to?: string): { start: number | null; end: number | null } {
-  const start = from ? new Date(`${from}T00:00:00`).getTime() : NaN
-  const end = to ? new Date(`${to}T23:59:59.999`).getTime() : NaN
-  return {
-    start: Number.isFinite(start) ? start : null,
-    end: Number.isFinite(end) ? end : null
-  }
-}
 
-function zammadDateField(dateField?: 'created' | 'closed'): string {
-  return dateField === 'closed' ? 'close_at' : 'created_at'
-}
 
-function dateRangeQuery(from: string | undefined, to: string | undefined, dateField?: 'created' | 'closed'): string {
-  const { start, end } = dayRangeBounds(from, to)
-  if (start === null && end === null) return ''
-  const lower = start === null ? '*' : new Date(start).toISOString()
-  const upper = end === null ? '*' : new Date(end).toISOString()
-  return `${zammadDateField(dateField)}:[${lower} TO ${upper}]`
-}
 
-function isInDateRange(raw: any, from: string | undefined, to: string | undefined, dateField?: 'created' | 'closed'): boolean {
-  const { start, end } = dayRangeBounds(from, to)
-  if (start === null && end === null) return true
-  const value = dateField === 'closed' ? raw?.close_at : raw?.created_at
-  const timestamp = Date.parse(String(value ?? ''))
-  // A ticket that is not closed yet simply has no date to match against.
-  if (!Number.isFinite(timestamp)) return false
-  if (start !== null && timestamp < start) return false
-  if (end !== null && timestamp > end) return false
-  return true
-}
 
 async function executeFetchZammadTickets(params: TicketListParams): Promise<TicketListResponse> {
   const token = getToken()
@@ -4125,7 +4005,7 @@ export function setupTicketsIpc(): void {
 }
 
 const CLIENTS_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-const TICKET_DETAILS_URL_RE = /\/Tickets\/(?:Details|Edit)\/(\d+)/i
+
 
 interface ClientsFormResponse {
   status: number
@@ -4166,12 +4046,6 @@ async function postClientsForm(url: string, body: string, referer: string): Prom
   }
 }
 
-function isClientsLoginPage(html: string): boolean {
-  if (!html) return false
-  if (/<form[^>]+action="[^"]*\/Account\/Login/i.test(html)) return true
-  if (/returnUrl=%2f/i.test(html)) return true
-  return /Account\/Login/i.test(html) && /name="password"/i.test(html)
-}
 
 // clients answers an unauthenticated POST with a redirect to the login page, so
 // nothing was created and the request can safely be replayed after logging in.
@@ -4233,15 +4107,7 @@ function extractRequestVerificationToken(html: string): string | null {
   return match ? match[1] : null
 }
 
-function parseTicketIdValue(value: unknown): number | null {
-  const id = parseInt(String(value ?? '').trim(), 10)
-  return Number.isFinite(id) && id > 0 ? id : null
-}
 
-function ticketIdFromUrl(value: unknown): number | null {
-  const match = String(value ?? '').match(TICKET_DETAILS_URL_RE)
-  return match ? parseTicketIdValue(match[1]) : null
-}
 
 function ticketIdFromJsonPayload(payload: any, depth = 0): number | null {
   if (!payload || typeof payload !== 'object' || depth > 3) return null
@@ -4262,13 +4128,10 @@ function ticketIdFromJsonPayload(payload: any, depth = 0): number | null {
 
 // The caption field only exists on the create form itself, so it doubles as the
 // proof that the page we loaded is the form and not a login page served with 200.
-const CLIENTS_CREATE_FORM_RE = /\b(?:id|name)="newCaption"/i
+
 
 // A re-rendered create form means nothing was saved — its ticket links belong to
 // other tickets and must never be mistaken for the new one.
-function isClientsCreateForm(html: string): boolean {
-  return CLIENTS_CREATE_FORM_RE.test(html)
-}
 
 // Loads the create form, posts it, and — if clients bounced the request to the
 // login page — logs in again and replays it. A login redirect means the POST was
@@ -4339,20 +4202,6 @@ function ticketIdFromHtml(html: string, excludeIds: number[]): number | null {
   return candidates.length === 1 ? candidates[0] : null
 }
 
-function clientsFormErrorMessage(html: string): string | null {
-  if (!html) return null
-  const patterns = [
-    /<div[^>]*class="[^"]*validation-summary-errors[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]*class="[^"]*alert-danger[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-    /class="text-danger"[^>]*>([\s\S]*?)<\/span>/i
-  ]
-  for (const pattern of patterns) {
-    const match = html.match(pattern)
-    const text = match ? stripHtml(match[1]) : ''
-    if (text) return text
-  }
-  return null
-}
 
 // Reads the parent's children table again and returns the row that was not there
 // before the POST — the most direct proof of which subtask was created.
