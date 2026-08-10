@@ -347,15 +347,17 @@ export default function TicketDetailsPage() {
 
   const updateTitleMutation = useMutation({
     mutationFn: (title: string) => window.api.tickets.setTitle(idNum, title),
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       setTitleError('')
-      // Сервер мог подровнять текст (пробелы, длина) — показываем то, что он принял.
-      setSavingTitle(result.title)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] }),
-        queryClient.invalidateQueries({ queryKey: ['tickets'] })
-      ])
+      // Сервер принял заголовок — вписываем его прямо в кэш и снимаем индикатор.
+      // Ждать перечитывания заявки и списка незачем: это долгие запросы, а ответ
+      // на них уже известен. Они обновляются следом, в фоне.
+      queryClient.setQueryData(['ticket-details', idNum], (current: typeof detailsData) =>
+        current ? { ...current, ticket: { ...current.ticket, title: result.title } } : current
+      )
       setSavingTitle(null)
+      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
     },
     onError: (error: unknown) => {
       setSavingTitle(null)
