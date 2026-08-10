@@ -10,11 +10,13 @@ import logger from 'electron-log/main'
 const WRAPPER_BASE = 'https://clients.denvic.ru'
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
 
-// Dedicated persistent session for the wrapper — behaves like a browser, handles cookies automatically
-const WRAPPER_PARTITION = 'persist:clients-denvic'
 
+// net.fetch() ignores the `session` option — that option belongs to
+// net.request() — so every clients request has always gone through the default
+// session, and that is where the login cookie lives. Pointing this helper at the
+// same session is what makes the cookie checks agree with reality.
 function wrapperSession() {
-  return session.fromPartition(WRAPPER_PARTITION)
+  return session.defaultSession
 }
 
 function decodeHtml(value: string): string {
@@ -341,6 +343,16 @@ function clientsValidationMessage(html: string): string {
 const LOGIN_RETRY_COOLDOWN = 60_000
 let lastLoginFailure: { at: number; message: string } | null = null
 
+/**
+ * Drops only the clients cookies. The session is now the shared default one, so
+ * wiping all of its cookies would take unrelated ones down with it.
+ */
+async function clearClientsCookies(): Promise<void> {
+  const ses = wrapperSession()
+  const cookies = await ses.cookies.get({ url: WRAPPER_BASE })
+  await Promise.all(cookies.map(cookie => ses.cookies.remove(WRAPPER_BASE, cookie.name).catch(() => {})))
+}
+
 export async function loginWrapper(
   email: string,
   password: string,
@@ -364,7 +376,7 @@ export async function loginWrapper(
 async function performLoginWrapper(email: string, password: string): Promise<AppUser> {
   const ses = wrapperSession()
 
-  await ses.clearStorageData({ storages: ['cookies'] })
+  await clearClientsCookies()
 
   const pageResp = await net.fetch(`${WRAPPER_BASE}/`, {
     session: ses,
@@ -420,16 +432,19 @@ async function performLoginWrapper(email: string, password: string): Promise<App
   // cookie here must never fail a login that otherwise works — whether the
   // profile page loads is the real answer.
   try {
-    const byUrl = await ses.cookies.get({ url: WRAPPER_BASE })
-    const all = await ses.cookies.get({})
+    const inPartition = await ses.cookies.get({ url: WRAPPER_BASE })
+    // net.fetch() always uses the default session — the `session` option belongs
+    // to net.request(). So the login cookie may well be sitting there instead of
+    // in the partition the app thinks it uses.
+    const inDefault = await session.defaultSession.cookies.get({ url: WRAPPER_BASE })
+    const describe = (list: Electron.Cookie[]) => list.map(cookie => ({
+      name: cookie.name,
+      session: cookie.session,
+      expires: cookie.expirationDate ? new Date(cookie.expirationDate * 1000).toISOString() : null
+    }))
     logger.info('Куки clients после входа:', {
-      byUrl: byUrl.map(cookie => cookie.name),
-      all: all.map(cookie => ({
-        name: cookie.name,
-        domain: cookie.domain,
-        session: cookie.session,
-        expires: cookie.expirationDate ? new Date(cookie.expirationDate * 1000).toISOString() : null
-      }))
+      partition: describe(inPartition),
+      defaultSession: describe(inDefault)
     })
   } catch (err) {
     logger.warn('Не удалось прочитать куки clients:', err)
@@ -699,7 +714,7 @@ export function setupAuthIpc(): void {
   })
 
   ipcMain.handle('auth:logout', async () => {
-    await wrapperSession().clearStorageData({ storages: ['cookies'] })
+    await clearClientsCookies()
     writeStored({})
     logger.info('Logged out')
   })
