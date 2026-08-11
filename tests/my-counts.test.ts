@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { applyStateChange, type MyCounts } from '../src/renderer/src/lib/myCounts'
+import { applyPendingStates, PENDING_STATE_TTL_MS, type MyCounts } from '../src/renderer/src/lib/myCounts'
+import type { PendingState } from '../src/renderer/src/store/pendingStates'
 import type { Ticket } from '../src/renderer/src/types/ticket'
+
+const NOW = 1_800_000_000_000
 
 const ticket = (id: number, stateId: number, stateName: string): Ticket => ({
   id,
@@ -20,37 +23,48 @@ const data = (): MyCounts => ({
   counts: { 2: 2, 4: 1 }
 })
 
-const PENDING = { id: 4, name: 'Отложена' }
+const pending = (stateId: number, stateName: string, at = NOW): PendingState => ({ stateId, stateName, at })
 
-describe('applyStateChange', () => {
+describe('applyPendingStates', () => {
   it('переносит заявку из одного статуса в другой', () => {
-    const next = applyStateChange(data(), 1, PENDING)!
+    const next = applyPendingStates(data(), { 1: pending(4, 'Отложена') }, NOW)!
     expect(next.counts).toEqual({ 2: 1, 4: 2 })
-    expect(next.tickets.find(t => t.id === 1)!.state).toEqual(PENDING)
+    expect(next.tickets.find(t => t.id === 1)!.state).toEqual({ id: 4, name: 'Отложена' })
   })
 
-  it('не трогает данные, если статус тот же', () => {
-    const before = data()
-    expect(applyStateChange(before, 3, PENDING)).toBe(before)
+  it('накладывает несколько переводов сразу', () => {
+    const next = applyPendingStates(data(), { 1: pending(4, 'Отложена'), 2: pending(4, 'Отложена') }, NOW)!
+    expect(next.counts).toEqual({ 2: 0, 4: 3 })
   })
 
-  it('не трогает данные, если заявки нет в списке', () => {
+  it('ничего не меняет, когда сервер уже согласен', () => {
     const before = data()
-    expect(applyStateChange(before, 999, PENDING)).toBe(before)
+    expect(applyPendingStates(before, { 3: pending(4, 'Отложена') }, NOW)).toBe(before)
+  })
+
+  it('забывает перевод, которому сервер так и не поверил', () => {
+    const stale = { 1: pending(4, 'Отложена', NOW - PENDING_STATE_TTL_MS - 1) }
+    const before = data()
+    expect(applyPendingStates(before, stale, NOW)).toBe(before)
+  })
+
+  it('не трогает заявку, которой нет в списке', () => {
+    const before = data()
+    expect(applyPendingStates(before, { 999: pending(4, 'Отложена') }, NOW)).toBe(before)
   })
 
   it('не уводит счётчик в минус', () => {
     const broken: MyCounts = { tickets: [ticket(1, 2, 'Открыта')], counts: {} }
-    expect(applyStateChange(broken, 1, PENDING)!.counts).toEqual({ 4: 1 })
+    expect(applyPendingStates(broken, { 1: pending(4, 'Отложена') }, NOW)!.counts).toEqual({ 4: 1 })
   })
 
   it('переживает отсутствие данных', () => {
-    expect(applyStateChange(undefined, 1, PENDING)).toBeUndefined()
+    expect(applyPendingStates(undefined, { 1: pending(4, 'Отложена') }, NOW)).toBeUndefined()
   })
 
   it('не меняет исходный объект', () => {
     const before = data()
-    applyStateChange(before, 1, PENDING)
+    applyPendingStates(before, { 1: pending(4, 'Отложена') }, NOW)
     expect(before.counts).toEqual({ 2: 2, 4: 1 })
     expect(before.tickets[0].state.name).toBe('Открыта')
   })
