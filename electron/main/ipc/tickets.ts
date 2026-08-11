@@ -3589,6 +3589,40 @@ async function deleteChecklistItem(itemId: number): Promise<{ ok: true }> {
   return { ok: true }
 }
 
+/**
+ * Массовые действия clients не умеет — только по одному пункту. Перебор идёт
+ * здесь, а не в интерфейсе: иначе на каждый пункт был бы отдельный переход
+ * через IPC, и половина чек-листа могла остаться необработанной незаметно.
+ */
+async function updateWholeChecklist(
+  ticketId: number,
+  action: 'check' | 'uncheck' | 'clear'
+): Promise<{ ok: true; affected: number }> {
+  const { groups } = await fetchTicketChecklist(ticketId)
+  const items = groups.flatMap(group => group.items)
+  let affected = 0
+
+  for (const item of items) {
+    if (action === 'clear') {
+      await deleteChecklistItem(item.id)
+      affected += 1
+      continue
+    }
+    const shouldBeChecked = action === 'check'
+    if (item.checked === shouldBeChecked) continue
+    await setChecklistItemChecked(ticketId, {
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      category: item.category,
+      checked: shouldBeChecked
+    })
+    affected += 1
+  }
+
+  return { ok: true, affected }
+}
+
 async function searchUsers(query: string): Promise<UserSearchResult[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
@@ -4023,6 +4057,14 @@ export function setupTicketsIpc(): void {
     items: { name: string; category: string; description: string }[]
   ) => {
     return addChecklistItems(ticketId, items)
+  })
+
+  ipcMain.handle('tickets:updateWholeChecklist', async (
+    _event,
+    ticketId: number,
+    action: 'check' | 'uncheck' | 'clear'
+  ) => {
+    return updateWholeChecklist(ticketId, action)
   })
 
   ipcMain.handle('tickets:deleteChecklistItem', async (_event, itemId: number) => {

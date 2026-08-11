@@ -15,10 +15,17 @@ export function OutboxIndicator() {
   const drop = useOutboxStore(store => store.drop)
   const openTab = useTabsStore(store => store.openTab)
 
+  // Заявка, открытая прямо сейчас, показывает ход отправки у себя в шапке —
+  // вторая такая же плашка снизу была просто дублем.
+  const openTicketId = useTabsStore(store => {
+    const active = store.tabs.find(tab => tab.id === store.activeTabId)
+    const match = (active?.path ?? '').match(/\/dashboard\/tickets\/(\d+)/)
+    return match ? Number(match[1]) : null
+  })
+
   const failed = jobs.filter(job => job.status === 'failed')
-  const sending = jobs.filter(job => job.status === 'sending')
-  // Пока отправка идёт и заявка открыта, её видно в самой ленте — снизу
-  // показываем только то, о чём иначе никто не узнает.
+  const sending = jobs.filter(job => job.status === 'sending' && job.payload.ticketId !== openTicketId)
+  // Неудача показывается всегда: о ней иначе не узнать, даже не уходя из заявки.
   const shown = failed.length > 0 ? failed : sending
 
   return (
