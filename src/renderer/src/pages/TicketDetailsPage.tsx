@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
-import { applyStateChange, COUNTS_REINDEX_DELAY_MS, type MyCounts } from '@/lib/myCounts'
+import { usePendingStatesStore } from '@/store/pendingStates'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -116,6 +116,7 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
+  const setPendingState = usePendingStatesStore(s => s.setPendingState)
   // Общий для обоих запросов заявки: пока сервер отвечает — раз в пять секунд,
   // когда падает — всё реже, вплоть до раза в минуту.
   const pollInterval = (query: { state: { fetchFailureCount: number } }) =>
@@ -429,26 +430,15 @@ export default function TicketDetailsPage() {
       setCommentError('')
       setCommentWarning('')
       // Чипы наверху считаются поиском Zammad, а поиск ходит через индекс и
-      // догоняет перевод через несколько секунд. Поэтому переход применяется к
-      // уже загруженным данным сразу, а перезапрос счётчиков откладывается —
-      // иначе он тут же вернул бы заявку в старый статус.
+      // догоняет перевод через несколько секунд. Перевод запоминается и
+      // накладывается на каждый ответ сервера, пока индекс не догонит — иначе
+      // ближайший же перезапрос вернёт заявку в прежний статус.
       const nextState = filtersData?.states?.find(state => Number(state.id) === commentStateId)
       if (nextState) {
-        queryClient.setQueryData(['tickets', 'my-counts'], (current: MyCounts | undefined) =>
-          applyStateChange(current, idNum, { id: Number(nextState.id), name: nextState.name })
-        )
+        setPendingState(idNum, Number(nextState.id), nextState.name)
       }
       queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      queryClient.invalidateQueries({
-        queryKey: ['tickets'],
-        predicate: query => !(nextState && query.queryKey[1] === 'my-counts')
-      })
-      if (nextState) {
-        window.setTimeout(
-          () => queryClient.invalidateQueries({ queryKey: ['tickets', 'my-counts'] }),
-          COUNTS_REINDEX_DELAY_MS
-        )
-      }
+      queryClient.invalidateQueries({ queryKey: ['tickets'] })
       // The placeholder is removed only once the real article is in the list.
       // Clearing it earlier made the message blink out and back in.
       await queryClient.invalidateQueries({ queryKey: ['ticket-articles', idNum] })

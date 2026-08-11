@@ -1,44 +1,52 @@
 import type { Ticket } from '@/types/ticket'
+import type { PendingState } from '@/store/pendingStates'
 
 /**
- * Сколько ждать, прежде чем перечитать счётчики с сервера. Меньше — и ответ
- * придёт из ещё не обновившегося индекса, вернув заявку в прежний статус.
+ * Сколько держим свой перевод, пока сервер о нём не знает. Индекс поиска
+ * обновляется за секунды, но под нагрузкой может задержаться; дольше двух минут
+ * настаивать на своём опасно — вдруг статус успели поменять из Zammad.
  */
-export const COUNTS_REINDEX_DELAY_MS = 10_000
+export const PENDING_STATE_TTL_MS = 120_000
 
 export interface MyCounts {
   tickets: Ticket[]
   counts: Record<number, number>
 }
 
-/**
- * Zammad считает мои заявки поиском, а поиск ходит через индекс — он догоняет
- * изменение через несколько секунд. Всё это время чипы наверху показывали
- * старый статус, хотя заявка уже переведена. Здесь тот же переход применяется
- * к уже загруженным данным, чтобы цифры сходились сразу.
- *
- * Заявка, которой нет в списке (например, чужая), ничего не меняет.
- */
-export function applyStateChange(
-  data: MyCounts | undefined,
-  ticketId: number,
-  newState: { id: number; name: string }
-): MyCounts | undefined {
-  if (!data) return data
-
+function moveTicket(data: MyCounts, ticketId: number, state: { id: number; name: string }): MyCounts {
   const current = data.tickets.find(ticket => ticket.id === ticketId)
-  if (!current || current.state.id === newState.id) return data
+  if (!current || current.state.id === state.id) return data
 
   const counts = { ...data.counts }
   const previous = counts[current.state.id] ?? 0
   // До нуля и не ниже: отрицательное число в чипе выглядело бы поломкой.
   if (previous > 0) counts[current.state.id] = previous - 1
-  counts[newState.id] = (counts[newState.id] ?? 0) + 1
+  counts[state.id] = (counts[state.id] ?? 0) + 1
 
   return {
     counts,
-    tickets: data.tickets.map(ticket =>
-      ticket.id === ticketId ? { ...ticket, state: newState } : ticket
-    )
+    tickets: data.tickets.map(ticket => (ticket.id === ticketId ? { ...ticket, state } : ticket))
   }
+}
+
+/**
+ * Накладывает наши ещё не проиндексированные переводы на ответ сервера, чтобы
+ * чипы наверху показывали статус сразу после изменения, а не через несколько
+ * секунд. Перевод, который сервер уже подтвердил, ничего не меняет.
+ *
+ * @param now время для проверки срока — параметром, чтобы это можно было проверить тестами.
+ */
+export function applyPendingStates(
+  data: MyCounts | undefined,
+  overrides: Record<number, PendingState>,
+  now = Date.now()
+): MyCounts | undefined {
+  if (!data) return data
+
+  let result = data
+  for (const [key, override] of Object.entries(overrides)) {
+    if (now - override.at > PENDING_STATE_TTL_MS) continue
+    result = moveTicket(result, Number(key), { id: override.stateId, name: override.stateName })
+  }
+  return result
 }
