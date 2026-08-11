@@ -1944,7 +1944,9 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
 
     const resp = await zammadFetch(url.toString(), { headers: h })
     if (!resp.ok) {
-      throw new Error(`Ошибка загрузки заявок: ${resp.status}`)
+      const text = await resp.text().catch(() => '')
+      logger.error('Ошибка загрузки заявок:', { status: resp.status, text: text.slice(0, 300) })
+      throw new Error(describeHttpError(resp.status, text, 'Не удалось загрузить заявки'))
     }
 
     const data = await resp.json()

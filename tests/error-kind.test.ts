@@ -30,6 +30,17 @@ describe('describeError', () => {
     expect(result.canRetry).toBe(true)
   })
 
+  it('узнаёт код статуса без скобок', () => {
+    expect(describeError(new Error('Ошибка загрузки заявок: 502'), 'Ошибка').kind).toBe('server')
+    expect(describeError(new Error('Не удалось загрузить заявки (500).'), 'Ошибка').kind).toBe('server')
+    expect(describeError(new Error('Нет доступа 401'), 'Ошибка').canRetry).toBe(false)
+  })
+
+  it('не принимает номер заявки за код ошибки', () => {
+    expect(describeError(new Error('Заявка 5023 не найдена'), 'Ошибка').kind).toBe('data')
+    expect(describeError(new Error('Заявка 616943 закрыта'), 'Ошибка').kind).toBe('data')
+  })
+
   it('показывает человеческое сообщение как есть и не дублирует его', () => {
     const result = describeError(new Error('Вложение слишком большое'), 'Ошибка')
     expect(result.title).toBe('Вложение слишком большое')
