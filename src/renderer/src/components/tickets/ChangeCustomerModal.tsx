@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { AlertTriangle, Building, Loader2, Search, User, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { CustomCheckbox } from '@/components/ui/custom-controls'
 import { cn } from '@/lib/utils'
 import type { OrganizationDetails } from '@/types/ticket'
 
@@ -176,18 +177,9 @@ export function ChangeCustomerModal({
 
             {organization && (
               <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    id="linkFoundToOrg"
-                    checked={linkFoundToOrg}
-                    onChange={(e) => setLinkFoundToOrg(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
-                  />
-                  <label htmlFor="linkFoundToOrg" className="select-none text-xs text-foreground">
-                    Перевести выбранного клиента в организацию «{organization?.name}»
-                  </label>
-                </div>
+                <CustomCheckbox checked={linkFoundToOrg} onChange={setLinkFoundToOrg}>
+                  Перевести выбранного клиента в организацию «{organization?.name}»
+                </CustomCheckbox>
                 {/* Последствие названо прямо: раньше отметка стояла по умолчанию,
                     и клиента незаметно переносили во внутреннюю организацию. */}
                 <p className="flex items-start gap-1.5 pl-6 text-[11px] leading-4 text-muted-foreground">
@@ -305,18 +297,9 @@ export function ChangeCustomerModal({
               />
             </div>
             {organization && (
-              <div className="flex items-center gap-2 mt-1">
-                <input
-                  type="checkbox"
-                  id="linkNewToOrg"
-                  checked={linkNewToOrg}
-                  onChange={(e) => setLinkNewToOrg(e.target.checked)}
-                  className="h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
-                />
-                <label htmlFor="linkNewToOrg" className="text-xs text-muted-foreground select-none">
-                  Привязать к организации «{organization?.name}»
-                </label>
-              </div>
+              <CustomCheckbox checked={linkNewToOrg} onChange={setLinkNewToOrg} className="mt-1">
+                Привязать к организации «{organization?.name}»
+              </CustomCheckbox>
             )}
 
             <div className="flex justify-end gap-3 mt-4 border-t border-border pt-3">

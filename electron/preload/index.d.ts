@@ -90,6 +90,10 @@ declare global {
           items: { name: string; category: string; description: string }[]
         ) => Promise<{ ok: true }>
         deleteChecklistItem: (itemId: number) => Promise<{ ok: true }>
+        updateWholeChecklist: (
+          ticketId: number,
+          action: 'check' | 'uncheck' | 'clear'
+        ) => Promise<{ ok: true; affected: number }>
         getChecklist: (ticketId: number) => Promise<{ groups: ChecklistGroup[]; templates: { id: number; name: string }[] }>
         setChecklistItem: (
           ticketId: number,

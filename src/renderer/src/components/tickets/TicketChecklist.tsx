@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronDown, ChevronUp, ListChecks, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Check, CheckCheck, ChevronDown, ChevronUp, ListChecks, Loader2, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ErrorNotice } from '@/components/ui/error-notice'
 
@@ -49,11 +49,13 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
   const [newCategory, setNewCategory] = useState('')
   const [newDescription, setNewDescription] = useState('')
   const [addError, setAddError] = useState('')
+  // Удаление всего чек-листа необратимо, поэтому спрашивается прямо в меню.
+  const [confirmClear, setConfirmClear] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   // Меню закрывается по клику мимо: иначе оно остаётся висеть поверх переписки.
   useEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen) { setConfirmClear(false); return }
     const onDown = (event: MouseEvent) => {
       if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false)
     }
@@ -134,6 +136,20 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
       queryClient.invalidateQueries({ queryKey: ['ticket-checklist', ticketId] })
     },
     onError: (err: unknown) => setAddError(err instanceof Error ? err.message : 'Не удалось добавить пункт')
+  })
+
+  const wholeChecklist = useMutation({
+    mutationFn: (action: 'check' | 'uncheck' | 'clear') =>
+      window.api.tickets.updateWholeChecklist(ticketId, action),
+    onSuccess: () => {
+      setMenuOpen(false)
+      setConfirmClear(false)
+      queryClient.invalidateQueries({ queryKey: ['ticket-checklist', ticketId] })
+    },
+    onError: (err: unknown) => {
+      setConfirmClear(false)
+      setAddError(err instanceof Error ? err.message : 'Не удалось изменить чек-лист')
+    }
   })
 
   const removeItem = useMutation({
@@ -226,6 +242,38 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                     <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
                     Свой пункт
                   </button>
+
+                  {items.length > 0 && (
+                    <>
+                      <div className="my-1 h-px bg-border" />
+                      <button
+                        type="button"
+                        onClick={() => wholeChecklist.mutate(done === items.length ? 'uncheck' : 'check')}
+                        disabled={wholeChecklist.isPending}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+                      >
+                        <CheckCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        {done === items.length ? 'Снять все отметки' : 'Отметить всё'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => confirmClear ? wholeChecklist.mutate('clear') : setConfirmClear(true)}
+                        disabled={wholeChecklist.isPending}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors disabled:opacity-60',
+                          confirmClear
+                            ? 'bg-destructive/10 text-destructive hover:bg-destructive/15'
+                            : 'text-foreground hover:bg-accent'
+                        )}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                        {confirmClear
+                          ? `Точно удалить ${items.length}?`
+                          : 'Удалить чек-лист целиком'}
+                      </button>
+                    </>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

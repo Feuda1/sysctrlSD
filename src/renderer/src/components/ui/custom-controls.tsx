@@ -28,6 +28,43 @@ export function CustomToggle({ checked, onChange, label }: { checked: boolean; o
   )
 }
 
+/**
+ * Отметка с подписью в несколько строк. От CustomToggle отличается тем, что это
+ * не кнопка-таблетка: нативный чекбокс рядом с длинным текстом выглядел белым
+ * квадратом не в стиле приложения и не поддавался теме.
+ */
+export function CustomCheckbox({
+  checked,
+  onChange,
+  children,
+  className
+}: {
+  checked: boolean
+  onChange: (value: boolean) => void
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn('flex select-none items-start gap-2 text-left', className)}
+    >
+      <span className={cn(
+        'mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
+        checked
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-muted-foreground/40 bg-background/40'
+      )}>
+        {checked && <Check className="h-3 w-3" />}
+      </span>
+      <span className="min-w-0 text-xs text-foreground">{children}</span>
+    </button>
+  )
+}
+
 export function CustomSelect<T extends { id: number | string; name: string }>({
   value,
   options,

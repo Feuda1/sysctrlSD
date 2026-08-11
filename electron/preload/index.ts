@@ -286,6 +286,11 @@ const api = {
       items: { name: string; category: string; description: string }[]
     ): Promise<{ ok: true }> =>
       invoke('tickets:addChecklistItems', ticketId, items),
+    updateWholeChecklist: (
+      ticketId: number,
+      action: 'check' | 'uncheck' | 'clear'
+    ): Promise<{ ok: true; affected: number }> =>
+      invoke('tickets:updateWholeChecklist', ticketId, action),
     deleteChecklistItem: (itemId: number): Promise<{ ok: true }> =>
       invoke('tickets:deleteChecklistItem', itemId),
     exportTicket: (
