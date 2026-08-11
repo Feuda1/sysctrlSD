@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterCalls, matchesCallQuery } from '../src/renderer/src/lib/callSearch'
+import { filterCalls, matchesCallQuery, mergeCalls, mostCommonOperator } from '../src/renderer/src/lib/callSearch'
 
 const call = (over: Record<string, unknown> = {}) => ({
   id: '1',
@@ -9,7 +9,7 @@ const call = (over: Record<string, unknown> = {}) => ({
   phone: '+7 (978) 691-86-26',
   client: 'Кравчук Евгений Васильевич ИП',
   organization: 'РИБАМБЕЛЬ ООО',
-  operator: 'Иван Глущенко',
+  operator: '622',
   startedAt: '11.08.2026 15:44:07',
   duration: '00:02:13',
   status: 'Отвечен',
@@ -25,9 +25,9 @@ describe('matchesCallQuery', () => {
     expect(matchesCallQuery(call(), 'КРАВЧУК')).toBe(true)
   })
 
-  it('находит по организации и по оператору', () => {
+  it('находит по организации и по добавочному ответчика', () => {
     expect(matchesCallQuery(call(), 'рибамбель')).toBe(true)
-    expect(matchesCallQuery(call(), 'глущенко')).toBe(true)
+    expect(matchesCallQuery(call(), '622')).toBe(true)
   })
 
   it('находит номер, как бы он ни был записан', () => {
@@ -53,6 +53,33 @@ describe('matchesCallQuery', () => {
   it('переживает пустые поля', () => {
     const empty = call({ phone: null, client: null, organization: null, operator: null, status: null, startedAt: null, raw: undefined })
     expect(matchesCallQuery(empty, 'что-нибудь')).toBe(false)
+  })
+})
+
+describe('mostCommonOperator', () => {
+  it('находит свой добавочный по загруженным «моим» звонкам', () => {
+    const list = [call(), call({ id: '2' }), call({ id: '3', operator: '777' })]
+    expect(mostCommonOperator(list)).toBe('622')
+  })
+
+  it('на пустом списке отдаёт пустую строку', () => {
+    expect(mostCommonOperator([])).toBe('')
+    expect(mostCommonOperator([call({ operator: null })])).toBe('')
+  })
+})
+
+describe('mergeCalls', () => {
+  it('склеивает без повторов, сохраняя порядок', () => {
+    const a = call()
+    const b = call({ id: '2' })
+    expect(mergeCalls([a], [b, a]).map(item => item.id)).toEqual(['1', '2'])
+  })
+
+  it('различает записи без id по звонку и времени', () => {
+    const a = call({ id: '', callId: 'x', startedAt: '1' })
+    const b = call({ id: '', callId: 'y', startedAt: '2' })
+    expect(mergeCalls([a, b]).length).toBe(2)
+    expect(mergeCalls([a], [a]).length).toBe(1)
   })
 })
 
