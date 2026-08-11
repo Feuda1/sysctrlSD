@@ -39,7 +39,9 @@ export function TicketHistoryModal({
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="flex h-full w-full max-w-[420px] flex-col border-l border-border bg-card shadow-2xl"
+        // Ящик начинается ниже полосы с кнопками окна: иначе его крестик
+        // оказывался ровно под кнопкой закрытия приложения.
+        className="mt-[38px] flex h-[calc(100%-38px)] w-full max-w-[420px] flex-col border-l border-border bg-card shadow-2xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">

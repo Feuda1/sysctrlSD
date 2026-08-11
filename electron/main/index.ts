@@ -76,13 +76,9 @@ function extensionPath(): string {
     : join(app.getAppPath(), 'extension')
 }
 
-function getOverlayConfig(isDark: boolean) {
-  return {
-    color: isDark ? '#0b0f1a' : '#f8fafc',
-    symbolColor: isDark ? '#94a3b8' : '#64748b',
-    height: 38
-  }
-}
+// Системные кнопки окна (titleBarOverlay) больше не используются: они рисуются
+// поверх всего содержимого, накрывая крестики диалогов, и не поддаются нашей
+// теме. Кнопки нарисованы в интерфейсе — см. WindowControls.
 
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
@@ -251,7 +247,6 @@ function createWindow(initialPath?: string, bounds?: WindowBounds): BrowserWindo
     icon: join(__dirname, '../../resources/icon.ico'),
     backgroundColor: isDark ? '#0b0f1a' : '#f8fafc',
     titleBarStyle: 'hidden',
-    titleBarOverlay: getOverlayConfig(isDark),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -460,14 +455,7 @@ app.whenReady().then(() => {
   ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'system') => {
     nativeTheme.themeSource = theme
     const isDark = nativeTheme.shouldUseDarkColors
-    for (const win of windows) win.setTitleBarOverlay(getOverlayConfig(isDark))
     return isDark ? 'dark' : 'light'
-  })
-
-  nativeTheme.on('updated', () => {
-    if (nativeTheme.themeSource === 'system') {
-      for (const win of windows) win.setTitleBarOverlay(getOverlayConfig(nativeTheme.shouldUseDarkColors))
-    }
   })
 
   setupPyrusInterceptor(session.defaultSession)

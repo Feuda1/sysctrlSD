@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage'
 import { useNotificationsStore } from './store/notifications'
 import { NotificationToast } from './components/notifications/NotificationToast'
 import { UpdateNotification } from './components/UpdateNotification'
+import { WindowControls } from './components/layout/WindowControls'
 
 function RestoreScreen() {
   return (
@@ -167,19 +168,22 @@ export default function App() {
     }
   }, [status])
 
-  if (status === 'idle' || status === 'loading') {
-    return <RestoreScreen />
-  }
-
-  if (status !== 'authenticated') {
-    return <LoginPage />
-  }
-
+  // Кнопки окна рисуем сами и показываем всегда: они нужны и на входе, и на
+  // восстановлении сессии, а не только внутри приложения.
   return (
     <>
-      <DashboardPage />
-      <NotificationToast />
-      <UpdateNotification />
+      <WindowControls />
+      {status === 'idle' || status === 'loading' ? (
+        <RestoreScreen />
+      ) : status !== 'authenticated' ? (
+        <LoginPage />
+      ) : (
+        <>
+          <DashboardPage />
+          <NotificationToast />
+          <UpdateNotification />
+        </>
+      )}
     </>
   )
 }

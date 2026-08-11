@@ -124,7 +124,7 @@ export function TabBar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="drag-region relative z-50 flex h-[38px] shrink-0 items-center gap-1.5 border-b border-border bg-background pl-1.5 pr-[138px] backdrop-blur-sm">
+      <div className="drag-region relative z-50 flex h-[38px] shrink-0 items-center gap-1.5 border-b border-border bg-background pl-1.5 pr-[142px] backdrop-blur-sm">
         <div className="no-drag flex items-center gap-0.5">
           <button
             type="button"
