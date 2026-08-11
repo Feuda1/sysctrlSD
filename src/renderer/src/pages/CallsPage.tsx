@@ -1094,11 +1094,6 @@ export default function CallsPage() {
     if (!debouncedSearch && data?.records) loadedBySection.current[activeSection] = data.records
   }, [data, debouncedSearch, activeSection])
 
-  const localMatches = useMemo(
-    () => (search.trim() ? filterCalls(loadedBySection.current[activeSection], search) : []),
-    [search, activeSection, data]
-  )
-
   // Свой добавочный: в звонках «ответчик» — это он. Берём из профиля clients, а
   // если там не заполнено — из уже загруженных «моих» звонков, где ответчик я.
   const { data: clientProfile } = useQuery({
@@ -1106,11 +1101,32 @@ export default function CallsPage() {
     queryFn: () => window.api.auth.getClientProfileSettings(),
     staleTime: Infinity
   })
+  // Первая страница «моих» без поиска: стоит полсекунды, зато по ней сразу
+  // виден свой добавочный и есть по чему искать мгновенно — даже если человек
+  // начал с поиска и раздел ни разу не открывал.
+  const { data: minePreview } = useQuery({
+    queryKey: ['calls', 'mine', '', 1, BROWSE_PAGE_SIZE],
+    queryFn: () => window.api.calls.getSection('mine', { query: '', page: 1, perPage: BROWSE_PAGE_SIZE }),
+    staleTime: 60_000
+  })
+
+  const localMatches = useMemo(
+    () => (search.trim()
+      ? filterCalls(
+          activeSection === 'mine' && loadedBySection.current.mine.length === 0
+            ? (minePreview?.records ?? [])
+            : loadedBySection.current[activeSection],
+          search
+        )
+      : []),
+    [search, activeSection, data, minePreview]
+  )
+
   const myExtension = useMemo(() => {
     const fromProfile = onlyDigits(clientProfile?.internalPhone ?? '')
     if (fromProfile) return fromProfile
-    return mostCommonOperator(loadedBySection.current.mine)
-  }, [clientProfile, data])
+    return mostCommonOperator(minePreview?.records ?? loadedBySection.current.mine)
+  }, [clientProfile, minePreview, data])
 
   // «Мои» на стороне clients ищутся в разы дольше общей истории: по одному и
   // тому же номеру 19 секунд против полутора. Поэтому пока идёт долгий поиск,
@@ -1392,9 +1408,14 @@ export default function CallsPage() {
             <input
               type="search" value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Поиск по номеру…"
-              className="h-9 w-full rounded-md border border-border bg-muted/50 pl-8 pr-3 text-xs text-foreground outline-none focus:border-primary/60"
+              placeholder="Номер, клиент, организация…"
+              className="h-9 w-full rounded-md border border-border bg-muted/50 pl-8 pr-9 text-xs text-foreground outline-none focus:border-primary/60"
             />
+            {/* Ход поиска — прямо в строке ввода: искать глазами индикатор
+                внизу списка никто не станет. */}
+            {awaitingServer && (
+              <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-primary" />
+            )}
           </div>
           {activeSection === 'current' && (
             <Button type="button" variant="ghost" size="sm" disabled={isFetching} onClick={() => refetch()} className="h-9 gap-1.5 rounded-md border border-border/60 px-3 text-xs">
@@ -1685,9 +1706,9 @@ export default function CallsPage() {
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {awaitingServer && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
             {showingPreliminary
-              ? `Найдено: ${preliminary.length} · дочитываем архив…`
+              ? `Найдено: ${preliminary.length} · ищем остальные звонки, это может занять до полуминуты`
               : awaitingServer
-                ? 'Ищем в архиве…'
+                ? 'Ищем по всем звонкам, это может занять до полуминуты…'
                 : `Найдено: ${calls.length}`}
           </div>
         ) : (
