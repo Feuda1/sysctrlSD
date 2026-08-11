@@ -23,13 +23,17 @@ import {
   type StylePreset
 } from '@/store/aiAssist'
 import { Button } from '@/components/ui/button'
+import { withAiContext } from '@/lib/aiContext'
+import { CustomCheckbox } from '@/components/ui/custom-controls'
 
 interface AiAssistButtonProps {
+  /** Последние сообщения заявки: помогают не путать имена, термины и тон. */
+  ticketContext?: string
   text: string
   onTextChange: (text: string) => void
 }
 
-export function AiAssistButton({ text, onTextChange }: AiAssistButtonProps) {
+export function AiAssistButton({ text, onTextChange, ticketContext }: AiAssistButtonProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [loading, setLoading] = useState<'stylize' | 'correct' | null>(null)
@@ -107,7 +111,10 @@ export function AiAssistButton({ text, onTextChange }: AiAssistButtonProps) {
         type === 'correct'
           ? CORRECTION_PROMPT
           : (activePreset?.instruction ?? BUILT_IN_PRESETS[0].instruction)
-      const result = await callAiApi(prompt, text, store.apiKey, store.provider)
+      const withContext = store.useTicketContext && ticketContext
+        ? withAiContext(prompt, ticketContext)
+        : prompt
+      const result = await callAiApi(withContext, text, store.apiKey, store.provider)
       if (result) {
         aiChangedRef.current = true
         setUndoText(text)
@@ -243,7 +250,7 @@ export function AiAssistButton({ text, onTextChange }: AiAssistButtonProps) {
 }
 
 function AiStylesModal({ onClose }: { onClose: () => void }) {
-  const { activePresetId, customPresets, setActivePresetId, addPreset, updatePreset, deletePreset } =
+  const { activePresetId, customPresets, setActivePresetId, addPreset, updatePreset, deletePreset, useTicketContext, setUseTicketContext } =
     useAiAssistStore()
 
   const allPresets = getAllPresets(customPresets)
@@ -310,6 +317,17 @@ function AiStylesModal({ onClose }: { onClose: () => void }) {
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
+        </div>
+
+        {/* Переписка заявки в помощь правке — с прямой оговоркой, куда она уходит. */}
+        <div className="border-b border-border/50 px-3 py-3">
+          <CustomCheckbox checked={useTicketContext} onChange={setUseTicketContext}>
+            Учитывать последние сообщения заявки
+          </CustomCheckbox>
+          <p className="mt-1 pl-6 text-[11px] leading-4 text-muted-foreground">
+            Помогает не путать имена, названия и обращение на «вы». Вместе с черновиком
+            в сервис ИИ уходят три последних сообщения заявки — если это нежелательно, отключите.
+          </p>
         </div>
 
         {/* Presets list */}

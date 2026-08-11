@@ -1,11 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
+import { buildAiContext } from '@/lib/aiContext'
 import { useOutboxStore } from '@/store/outbox'
 import { TicketBusyBar } from '@/components/tickets/TicketBusyBar'
 import { TicketChecklist } from '@/components/tickets/TicketChecklist'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
@@ -894,6 +895,10 @@ export default function TicketDetailsPage() {
   }
 
   const pendingAttachmentBytes = (pendingComment?.draft.attachments ?? []).reduce((sum, item) => sum + (item.size || 0), 0)
+
+  // Выжимка из переписки для помощника правки: по ней он не путает имена,
+  // названия и обращение на «вы».
+  const aiContext = useMemo(() => buildAiContext(chatArticles), [chatArticles])
 
   const displayArticles: TicketArticle[] = pendingComment
     ? [...chatArticles, {
@@ -1815,7 +1820,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 spellCheck
                 className="min-h-32 w-full resize-y rounded-lg border border-border bg-muted/25 px-3 py-2 pr-9 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"
               />
-              <AiAssistButton text={commentBody} onTextChange={setCommentBody} />
+              <AiAssistButton text={commentBody} onTextChange={setCommentBody} ticketContext={aiContext} />
             </div>
 
             {commentAttachments.length > 0 && (

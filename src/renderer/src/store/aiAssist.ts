@@ -17,6 +17,8 @@ interface Stored {
   provider: AiProvider
   activePresetId: string
   customPresets: StylePreset[]
+  /** Показывать ли нейросети последние сообщения заявки. */
+  useTicketContext?: boolean
 }
 
 // Default keys are injected at build time from .env so they ship in the packaged
@@ -45,7 +47,7 @@ function load(): Stored {
       return { ...parsed, v: STORED_VERSION, provider: DEFAULT_PROVIDER, apiKey: DEFAULT_API_KEY }
     }
   } catch {}
-  return { v: STORED_VERSION, apiKey: DEFAULT_API_KEY, provider: DEFAULT_PROVIDER, activePresetId: 'tech-support', customPresets: [] }
+  return { v: STORED_VERSION, apiKey: DEFAULT_API_KEY, provider: DEFAULT_PROVIDER, activePresetId: 'tech-support', customPresets: [], useTicketContext: true }
 }
 
 function save(data: Omit<Stored, 'v'>) {
@@ -102,12 +104,14 @@ interface AiAssistState {
   provider: AiProvider
   activePresetId: string
   customPresets: StylePreset[]
+  useTicketContext: boolean
   setApiKey: (key: string) => void
   setProvider: (p: AiProvider) => void
   setActivePresetId: (id: string) => void
   addPreset: (name: string, instruction: string) => string
   updatePreset: (id: string, name: string, instruction: string) => void
   deletePreset: (id: string) => void
+  setUseTicketContext: (value: boolean) => void
 }
 
 const stored = load()
@@ -117,6 +121,21 @@ export const useAiAssistStore = create<AiAssistState>((set, get) => ({
   provider: stored.provider,
   activePresetId: stored.activePresetId,
   customPresets: stored.customPresets,
+  // По умолчанию включено: без переписки правка хуже узнаёт имена и термины.
+  // Выключается в настройках помощника.
+  useTicketContext: stored.useTicketContext !== false,
+
+  setUseTicketContext: (useTicketContext) => {
+    const s = get()
+    save({
+      apiKey: s.apiKey,
+      provider: s.provider,
+      activePresetId: s.activePresetId,
+      customPresets: s.customPresets,
+      useTicketContext
+    })
+    set({ useTicketContext })
+  },
 
   setApiKey: (apiKey) => {
     const s = get()
