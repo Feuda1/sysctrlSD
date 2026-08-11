@@ -3183,6 +3183,12 @@ async function normalizeHistoryPayload(payload: any): Promise<TicketHistoryItem[
       return false
     }
 
+    // Служебные поля разбора обращения нейросетью. Их переписывает бот, к работе
+    // с заявкой они отношения не имеют, а историю забивают плотно.
+    if (attribute.startsWith('llm')) {
+      return false
+    }
+
     const type = String(item.type ?? '').toLowerCase()
     const action = String(item.action ?? '').toLowerCase()
     if (type === 'notification' || type === 'email' || type === 'email-out' || type === 'email-in' || action === 'notification') {
