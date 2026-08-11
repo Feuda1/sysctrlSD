@@ -124,7 +124,7 @@ export function TabBar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="drag-region relative z-50 flex h-[38px] shrink-0 items-center gap-1.5 border-b border-border bg-background pl-1.5 pr-[142px] backdrop-blur-sm">
+      <div className="drag-region relative z-50 flex h-[38px] shrink-0 items-center gap-1.5 border-b border-border bg-background pl-1.5 backdrop-blur-sm">
         <div className="no-drag flex items-center gap-0.5">
           <button
             type="button"
@@ -339,6 +339,12 @@ export function TabBar() {
             <TooltipContent>{displayName}</TooltipContent>
           </Tooltip>
         </div>
+
+        {/* Место под кнопки окна. Само по себе пустое, но помечено no-drag: без
+            этого весь верх остаётся областью перетаскивания, нажатие на кнопку
+            начинает системное перемещение окна, и «свернуть» с «развернуть»
+            теряются внутри него — доходит только закрытие. */}
+        <div className="no-drag h-full w-[142px] shrink-0" aria-hidden />
       </div>
     </TooltipProvider>
   )
