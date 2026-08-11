@@ -1,4 +1,4 @@
-import { AppUser, AuthResult, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup } from './index'
+import { AppUser, AuthResult, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup, CallRecord, CallSectionKey } from './index'
 
 declare global {
   interface Window {
@@ -155,6 +155,10 @@ declare global {
       }
       calls: {
         getAll: (params?: { query?: string; page?: number; perPage?: number }) => Promise<CallsResponse>
+        getSection: (
+          section: CallSectionKey,
+          params?: { query?: string; page?: number; perPage?: number }
+        ) => Promise<{ section: CallSectionKey; records: CallRecord[]; fetchedAt: string }>
         getRecording: (url: string) => Promise<CallRecording>
         bindToTicket: (params: {
           ticketId: string

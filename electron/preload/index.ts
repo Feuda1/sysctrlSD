@@ -378,6 +378,11 @@ const api = {
   calls: {
     getAll: (params?: { query?: string; page?: number; perPage?: number }): Promise<CallsResponse> =>
       invoke('calls:getAll', params),
+    getSection: (
+      section: 'history' | 'mine' | 'current',
+      params?: { query?: string; page?: number; perPage?: number }
+    ): Promise<{ section: string; records: CallRecord[]; fetchedAt: string }> =>
+      invoke('calls:getSection', section, params),
     getRecording: (url: string): Promise<CallRecording> => invoke('calls:getRecording', url),
     bindToTicket: (params: { ticketId: string; src: string; dst: string; callId: string; duration: string; date: string }): Promise<{ ok: boolean }> =>
       invoke('calls:bindToTicket', params),
