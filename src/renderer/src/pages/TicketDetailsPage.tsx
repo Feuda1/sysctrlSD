@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
+import { applyStateChange, COUNTS_REINDEX_DELAY_MS, type MyCounts } from '@/lib/myCounts'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -427,8 +428,27 @@ export default function TicketDetailsPage() {
     onSuccess: async () => {
       setCommentError('')
       setCommentWarning('')
+      // Чипы наверху считаются поиском Zammad, а поиск ходит через индекс и
+      // догоняет перевод через несколько секунд. Поэтому переход применяется к
+      // уже загруженным данным сразу, а перезапрос счётчиков откладывается —
+      // иначе он тут же вернул бы заявку в старый статус.
+      const nextState = filtersData?.states?.find(state => Number(state.id) === commentStateId)
+      if (nextState) {
+        queryClient.setQueryData(['tickets', 'my-counts'], (current: MyCounts | undefined) =>
+          applyStateChange(current, idNum, { id: Number(nextState.id), name: nextState.name })
+        )
+      }
       queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
+      queryClient.invalidateQueries({
+        queryKey: ['tickets'],
+        predicate: query => !(nextState && query.queryKey[1] === 'my-counts')
+      })
+      if (nextState) {
+        window.setTimeout(
+          () => queryClient.invalidateQueries({ queryKey: ['tickets', 'my-counts'] }),
+          COUNTS_REINDEX_DELAY_MS
+        )
+      }
       // The placeholder is removed only once the real article is in the list.
       // Clearing it earlier made the message blink out and back in.
       await queryClient.invalidateQueries({ queryKey: ['ticket-articles', idNum] })
