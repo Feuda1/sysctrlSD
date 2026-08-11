@@ -1,33 +1,35 @@
 import { AnimatePresence, motion } from 'framer-motion'
+import { Loader2 } from 'lucide-react'
 
 /**
- * Тонкая полоска поверх заявки, пока изменение уходит на сервер. Перевод
- * статуса или смена ответственного применялись молча, и понять, идёт ли что-то,
- * было невозможно — оставалось ждать и гадать.
+ * Показывает, что изменение заявки уходит на сервер. Перевод статуса или смена
+ * ответственного применялись молча, и понять, идёт ли что-то, было нельзя, пока
+ * оно само не появлялось на экране.
  *
- * Живёт только внутри заявки: в списках и на других экранах такой шум не нужен.
+ * Стоит в шапке заявки, рядом с кнопкой возврата: плашка поверх переписки
+ * перекрывала сообщения. Живёт только внутри заявки — в списках такой шум ни к
+ * чему.
  */
 export function TicketBusyBar({ busy, label }: { busy: boolean; label: string }) {
   return (
     <AnimatePresence>
       {busy && (
         <motion.div
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 8 }}
           transition={{ duration: 0.16, ease: 'easeOut' }}
-          className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center"
+          className="flex select-none items-center gap-2 overflow-hidden rounded-xl border border-primary/25 bg-primary/5 px-2.5 py-1.5"
         >
-          <div className="h-0.5 w-full overflow-hidden rounded-full bg-primary/15">
-            {/* Сколько осталось, никто не знает — поэтому полоска бегущая, а не по проценту. */}
-            <motion.div
-              className="h-full w-1/3 rounded-full bg-primary"
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+          <span className="text-xs font-medium text-foreground">{label}</span>
+          <span className="h-0.5 w-16 shrink-0 overflow-hidden rounded-full bg-primary/20">
+            {/* Сколько осталось, никто не знает — полоска бегущая, а не по проценту. */}
+            <motion.span
+              className="block h-full w-1/3 rounded-full bg-primary"
               animate={{ x: ['-100%', '300%'] }}
               transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
             />
-          </div>
-          <span className="mt-1.5 select-none rounded-full border border-border bg-card/95 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur">
-            {label}
           </span>
         </motion.div>
       )}
