@@ -2,6 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
 import { useOutboxStore } from '@/store/outbox'
 import { TicketBusyBar } from '@/components/tickets/TicketBusyBar'
+import { TicketChecklist } from '@/components/tickets/TicketChecklist'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -1381,6 +1382,9 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               </div>
             )}
           </div>
+
+          {/* Сам решает, показываться ли: у большинства заявок чек-листа нет. */}
+          <TicketChecklist ticketId={idNum} />
 
           {(detailsData?.ticket?.subTickets && detailsData.ticket.subTickets.length > 0 || true) && (
             <div className="bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4">
