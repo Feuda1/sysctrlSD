@@ -65,6 +65,21 @@ export interface NotificationSettings {
   closeToTrayEnabled?: boolean
 }
 
+export interface ChecklistItem {
+  id: number
+  name: string
+  description: string
+  checked: boolean
+  checkedBy: string
+  checkedAt: string
+  category: string
+}
+
+export interface ChecklistGroup {
+  category: string
+  items: ChecklistItem[]
+}
+
 export interface NotificationItem {
   id: string
   ticketId: number
@@ -257,6 +272,13 @@ const api = {
       invoke('tickets:setScore', ticketId, score, ignoreClientsRight),
     setTitle: (ticketId: number, title: string): Promise<{ ok: true; title: string }> =>
       invoke('tickets:setTitle', ticketId, title),
+    getChecklist: (ticketId: number): Promise<{ groups: any[]; templates: { id: number; name: string }[] }> =>
+      invoke('tickets:getChecklist', ticketId),
+    setChecklistItem: (
+      ticketId: number,
+      item: { id: number; name: string; description: string; category: string; checked: boolean }
+    ): Promise<{ checkedBy: string; checkedAt: string }> =>
+      invoke('tickets:setChecklistItem', ticketId, item),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }

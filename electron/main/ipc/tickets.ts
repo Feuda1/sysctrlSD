@@ -20,6 +20,12 @@ import {
   ticketIdFromUrl,
   CLIENTS_CREATE_FORM_RE,
 } from '../clients/parse'
+import {
+  parseChecklist,
+  parseChecklistTemplates,
+  type ChecklistGroup,
+  type ChecklistTemplate
+} from '../clients/checklist'
 import { dateRangeQuery, isInDateRange, zammadSearchValue } from '../zammad/query'
 import { cancelUpload, putWithProgress } from '../zammad/upload'
 import {
@@ -3457,6 +3463,70 @@ async function setTicketTitle(ticketId: number, title: string): Promise<{ ok: tr
 // Организация возвращается вместе с пользователем не для красоты: смена клиента
 // заявки может перевесить его в другую организацию, и без этого не видно, у кого
 // именно она отбирается.
+// Чек-лист живёт в clients, отдельной страницей-фрагментом, и ключ у него —
+// id заявки в Zammad, тот же, что и у остальных её экранов.
+async function fetchTicketChecklist(ticketId: number): Promise<{
+  groups: ChecklistGroup[]
+  templates: ChecklistTemplate[]
+}> {
+  const resp = await net.fetch(`${WRAPPER_BASE}/CheckList?id=${ticketId}`, {
+    session: wrapperSession()
+  } as any)
+  if (!resp.ok) {
+    throw new Error(describeHttpError(resp.status, '', 'Не удалось загрузить чек-лист'))
+  }
+  const html = await resp.text()
+  if (isClientsLoginPage(html)) {
+    throw new Error('Сессия clients истекла — войдите заново')
+  }
+
+  // Шаблоны перечислены в меню самой заявки; её HTML и так закэширован.
+  let templates: ChecklistTemplate[] = []
+  try {
+    templates = parseChecklistTemplates(await fetchTicketHtml(ticketId))
+  } catch (err) {
+    logger.warn(`Не удалось прочитать шаблоны чек-листа заявки ${ticketId}:`, err)
+  }
+
+  return { groups: parseChecklist(html), templates }
+}
+
+/**
+ * Отметка пункта. clients ждёт обратно весь пункт целиком, а не только флаг:
+ * если не вернуть имя, описание и раздел, они затрутся пустыми значениями.
+ */
+async function setChecklistItemChecked(
+  ticketId: number,
+  item: { id: number; name: string; description: string; category: string; checked: boolean }
+): Promise<{ checkedBy: string; checkedAt: string }> {
+  const resp = await net.fetch(`${WRAPPER_BASE}/Tickets/PutCheckListItem/${item.id}`, {
+    method: 'PUT',
+    session: wrapperSession(),
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      Id: item.id,
+      Name: item.name,
+      Description: item.description,
+      ZammadTicketId: ticketId,
+      IsChecked: item.checked,
+      Category: item.category
+    })
+  } as any)
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка отметки пункта чек-листа:', { status: resp.status, text: text.slice(0, 300) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось отметить пункт'))
+  }
+
+  const payload = await resp.json().catch(() => null) as
+    { user?: string; chekedDate?: string } | null
+  return {
+    checkedBy: item.checked ? String(payload?.user ?? '') : '',
+    checkedAt: item.checked && payload?.chekedDate ? String(payload.chekedDate) : ''
+  }
+}
+
 async function searchUsers(query: string): Promise<UserSearchResult[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
@@ -3875,6 +3945,18 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:setTitle', async (_event, ticketId: number, title: string) => {
     return setTicketTitle(ticketId, title)
+  })
+
+  ipcMain.handle('tickets:getChecklist', async (_event, ticketId: number) => {
+    return fetchTicketChecklist(ticketId)
+  })
+
+  ipcMain.handle('tickets:setChecklistItem', async (
+    _event,
+    ticketId: number,
+    item: { id: number; name: string; description: string; category: string; checked: boolean }
+  ) => {
+    return setChecklistItemChecked(ticketId, item)
   })
 
   ipcMain.handle('tickets:getHistory', async (_event, ticketId: number) => {

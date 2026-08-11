@@ -1,4 +1,4 @@
-import { AppUser, AuthResult, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem } from './index'
+import { AppUser, AuthResult, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup } from './index'
 
 declare global {
   interface Window {
@@ -84,6 +84,11 @@ declare global {
         onUploadProgress: (callback: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void
         setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean) => Promise<{ ok: true }>
         setTitle: (ticketId: number, title: string) => Promise<{ ok: true; title: string }>
+        getChecklist: (ticketId: number) => Promise<{ groups: ChecklistGroup[]; templates: { id: number; name: string }[] }>
+        setChecklistItem: (
+          ticketId: number,
+          item: { id: number; name: string; description: string; category: string; checked: boolean }
+        ) => Promise<{ checkedBy: string; checkedAt: string }>
         exportTicket: (
           ticketId: number,
           options: { text: boolean; images: boolean; files: boolean }
