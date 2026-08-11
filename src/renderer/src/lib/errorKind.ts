@@ -39,9 +39,18 @@ const OFFLINE_MARKERS = [
   'err_address_unreachable'
 ]
 
-const AUTH_MARKERS = ['(401)', '(403)', 'нет доступа', 'unauthorized', 'forbidden', 'api ключ']
+const AUTH_MARKERS = ['нет доступа', 'unauthorized', 'forbidden', 'api ключ']
 
-const SERVER_MARKERS = ['(502)', '(503)', '(504)', '(500)', 'сервер не ответил', 'internal server error']
+const SERVER_MARKERS = ['сервер не ответил', 'internal server error', 'bad gateway', 'gateway timeout']
+
+/**
+ * Код статуса встречается по-разному: «(502)», «ошибка 502», просто «: 502».
+ * Ищем число как отдельное слово, иначе «Заявка 5023» сойдёт за ошибку сервера.
+ */
+function statusCodeIn(message: string): number | null {
+  const match = message.match(/(?:^|[^\d])([45]\d{2})(?![\d])/)
+  return match ? Number(match[1]) : null
+}
 
 function messageOf(error: unknown): string {
   if (!error) return ''
@@ -59,6 +68,7 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
   const detail = messageOf(error).trim()
   const lower = detail.toLowerCase()
   const has = (markers: string[]) => markers.some(marker => lower.includes(marker))
+  const status = statusCodeIn(lower)
 
   if (!isOnline || has(OFFLINE_MARKERS)) {
     return {
@@ -80,7 +90,7 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
     }
   }
 
-  if (has(AUTH_MARKERS)) {
+  if (status === 401 || status === 403 || has(AUTH_MARKERS)) {
     return {
       kind: 'auth',
       title: 'Нет доступа',
@@ -90,11 +100,13 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
     }
   }
 
-  if (has(SERVER_MARKERS)) {
+  if ((status !== null && status >= 500) || has(SERVER_MARKERS)) {
     return {
       kind: 'server',
-      title: 'Сервер ответил ошибкой',
-      hint: 'Это сбой на стороне сервера. Повторите через минуту.',
+      title: status === 502 || status === 503 || status === 504
+        ? 'Сервер недоступен'
+        : 'Сервер ответил ошибкой',
+      hint: 'Сбой на стороне сервера, к данным он отношения не имеет. Повторите через минуту.',
       canRetry: true,
       detail
     }
