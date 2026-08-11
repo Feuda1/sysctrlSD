@@ -1,4 +1,4 @@
-import { dialog } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 import { writeFileSync } from 'fs'
 import logger from 'electron-log/main'
 import { createZip, type ZipEntry } from './zip'
@@ -216,11 +216,26 @@ export async function exportTicket(
       ? [{ name: 'Архив ZIP', extensions: ['zip'] }]
       : [{ name: 'Markdown', extensions: ['md'] }]
   }
-  // Deliberately without a parent window. A parented save dialog is modal on
-  // Windows: it disables the owner window for the duration, and when the app has
-  // more than one window the owner is not always re-enabled afterwards — the
-  // window stays visible but stops reacting to clicks entirely.
-  const saveResult = await dialog.showSaveDialog(dialogOptions)
+  // Диалог обязан знать своё окно. Без него Windows отдаёт владение временному
+  // окну, которое закрывается раньше диалога, и после сохранения приложение
+  // перестаёт принимать клики целиком — помогает только перезапуск.
+  const owner = BrowserWindow.getFocusedWindow()
+    ?? BrowserWindow.getAllWindows().find(win => !win.isDestroyed() && win.isVisible())
+    ?? null
+
+  let saveResult: Electron.SaveDialogReturnValue
+  try {
+    saveResult = owner
+      ? await dialog.showSaveDialog(owner, dialogOptions)
+      : await dialog.showSaveDialog(dialogOptions)
+  } finally {
+    // Страховка на случай, если окно осталось выключенным: без неё оно выглядит
+    // рабочим, но не реагирует ни на что.
+    if (owner && !owner.isDestroyed()) {
+      owner.setEnabled(true)
+      owner.focus()
+    }
+  }
 
   if (saveResult.canceled || !saveResult.filePath) {
     return { ok: false, canceled: true }
