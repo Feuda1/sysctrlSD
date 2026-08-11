@@ -176,6 +176,12 @@ export interface MetadataItem {
   name: string
 }
 
+export interface UserSearchResult extends MetadataItem {
+  email: string
+  organizationId: number | null
+  organizationName: string
+}
+
 export interface TicketTypeItem {
   id: string
   name: string
@@ -3446,21 +3452,40 @@ async function setTicketTitle(ticketId: number, title: string): Promise<{ ok: tr
   return { ok: true, title: normalized }
 }
 
-async function searchUsers(query: string): Promise<MetadataItem[]> {
+// Организация возвращается вместе с пользователем не для красоты: смена клиента
+// заявки может перевесить его в другую организацию, и без этого не видно, у кого
+// именно она отбирается.
+async function searchUsers(query: string): Promise<UserSearchResult[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
   url.searchParams.set('query', query || '*')
   url.searchParams.set('per_page', '15')
+  // expand отдаёт название организации строкой — иначе пришлось бы тянуть её
+  // отдельным запросом на каждого найденного.
+  url.searchParams.set('expand', 'true')
   const resp = await zammadFetch(url.toString(), { headers: zHeaders(token) })
   if (!resp.ok) return []
-  const list = await resp.json() as { id: number; firstname?: string; lastname?: string; login?: string }[]
+  const payload = await resp.json()
+  const list = (Array.isArray(payload) ? payload : (Array.isArray(payload?.users) ? payload.users : [])) as {
+    id: number
+    firstname?: string
+    lastname?: string
+    login?: string
+    email?: string
+    organization?: string
+    organization_id?: number | null
+  }[]
   return list.map(u => {
     const name = cleanUserName(u.firstname, u.lastname, u.login, u.id)
     meta.users[u.id] = name
     meta.usersLoaded[u.id] = true
+    const organizationId = u.organization_id ? Number(u.organization_id) : null
     return {
       id: u.id,
-      name
+      name,
+      email: u.email || '',
+      organizationId,
+      organizationName: String(u.organization || '')
     }
   })
 }
