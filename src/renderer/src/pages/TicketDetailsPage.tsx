@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
 import { useOutboxStore } from '@/store/outbox'
+import { TicketBusyBar } from '@/components/tickets/TicketBusyBar'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -153,6 +154,13 @@ export default function TicketDetailsPage() {
 
   /** Кнопки блокируются, только пока сообщение этой заявки в пути. */
   const isSendingComment = outboxJob?.status === 'sending'
+
+  // Любая отправка этой заявки, даже без сообщения в ленте: перевод статуса или
+  // смена ответственного шли молча, и понять, применяется ли изменение, было
+  // невозможно, пока оно само не появлялось на экране.
+  const isApplyingChanges = useOutboxStore(store =>
+    store.jobs.some(job => job.payload.ticketId === idNum && job.status === 'sending')
+  )
 
   const pendingComment: PendingComment | null = outboxJob
     ? {
@@ -779,6 +787,16 @@ export default function TicketDetailsPage() {
     setCopiedClientsLink(true)
     window.setTimeout(() => setCopiedClientsLink(false), 1200)
   }
+  // Что именно сейчас применяется — чтобы полоска наверху не была безымянной.
+  const busyLabel = savingTitle
+    ? 'Сохраняем заголовок…'
+    : scoreSaving
+      ? 'Выставляем баллы…'
+      : isSendingComment
+        ? 'Отправляем сообщение…'
+        : 'Применяем изменения…'
+  const isBusy = isApplyingChanges || !!savingTitle || scoreSaving
+
   const selectedArticleType = commentArticleType || getAutoArticleType(ticket.channel)
   const ticketTypeOptions = [
     ...(ticket.ticketType?.id ? [{ id: ticket.ticketType.id, name: ticket.ticketType.name }] : []),
@@ -955,7 +973,8 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
   }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 gap-4">
+    <div className="relative flex flex-1 flex-col min-h-0 gap-4">
+      <TicketBusyBar busy={isBusy} label={busyLabel} />
       <MediaViewer ticketId={idNum} items={previewItems} index={previewIndex} onIndexChange={setPreviewIndex} onClose={() => setPreviewItems([])} />
       <AnimatePresence>
         {historyModalOpen && (
