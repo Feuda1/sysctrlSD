@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
 import { filterCalls, mergeCalls, mostCommonOperator, onlyDigits } from '@/lib/callSearch'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { createPortal } from 'react-dom'
@@ -1033,10 +1034,14 @@ export default function CallsPage() {
   const [bindTicketLoading, setBindTicketLoading] = useState(false)
   const [bindTicketError, setBindTicketError] = useState('')
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedSearch(search), 400)
-    return () => window.clearTimeout(t)
-  }, [search])
+  // Поиск запускается только по Enter. Раньше он срывался на каждый набранный
+  // символ, а каждый такой поиск на стороне clients — это перебор архива до
+  // полуминуты; половина запусков была по недописанному номеру.
+  const applySearch = () => setDebouncedSearch(search.trim())
+  const clearSearch = () => {
+    setSearch('')
+    setDebouncedSearch('')
+  }
 
   useEffect(() => {
     setPage(1)
@@ -1111,15 +1116,15 @@ export default function CallsPage() {
   })
 
   const localMatches = useMemo(
-    () => (search.trim()
+    () => (debouncedSearch
       ? filterCalls(
           activeSection === 'mine' && loadedBySection.current.mine.length === 0
             ? (minePreview?.records ?? [])
             : loadedBySection.current[activeSection],
-          search
+          debouncedSearch
         )
       : []),
-    [search, activeSection, data, minePreview]
+    [debouncedSearch, activeSection, data, minePreview]
   )
 
   const myExtension = useMemo(() => {
@@ -1405,16 +1410,39 @@ export default function CallsPage() {
         <div className="flex items-center gap-2">
           <div className="relative w-72">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            {/* Обычное текстовое поле, а не type="search": у того браузер рисует
+                свой крестик, чужой всему остальному интерфейсу. */}
             <input
-              type="search" value={search}
+              type="text"
+              value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Номер, клиент, организация…"
-              className="h-9 w-full rounded-md border border-border bg-muted/50 pl-8 pr-9 text-xs text-foreground outline-none focus:border-primary/60"
+              onKeyDown={e => {
+                if (e.key === 'Enter') applySearch()
+                if (e.key === 'Escape') clearSearch()
+              }}
+              placeholder="Номер, клиент, организация — и Enter"
+              className="h-9 w-full rounded-md border border-border bg-muted/50 pl-8 pr-8 text-xs text-foreground outline-none focus:border-primary/60"
             />
-            {/* Ход поиска — прямо в строке ввода: искать глазами индикатор
-                внизу списка никто не станет. */}
+            {search && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                title="Очистить"
+                className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {/* Ход поиска — полоской под самим полем: крутящееся колесо рядом с
+                текстом выглядело чужеродно. */}
             {awaitingServer && (
-              <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-primary" />
+              <span className="pointer-events-none absolute inset-x-2 bottom-0 h-0.5 overflow-hidden rounded-full bg-primary/15">
+                <motion.span
+                  className="block h-full w-1/3 rounded-full bg-primary"
+                  animate={{ x: ['-100%', '300%'] }}
+                  transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              </span>
             )}
           </div>
           {activeSection === 'current' && (
