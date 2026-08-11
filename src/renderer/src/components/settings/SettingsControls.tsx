@@ -165,7 +165,9 @@ export function CustomSelect<T extends { id: number | string; name: string }>({
                   onChange={event => setQuery(event.target.value)}
                   placeholder="Поиск..."
                   className="h-8 w-full rounded-md border border-border bg-muted/25 pl-8 pr-2 text-xs text-foreground outline-none focus:border-primary/60"
-                  autoFocus
+                  // Фокус без прокрутки: обычный autoFocus заставлял браузер
+                  // подкрутить страницу к полю, и настройки уезжали вверх.
+                  ref={node => node?.focus({ preventScroll: true })}
                 />
               </div>
             </div>
@@ -272,7 +274,9 @@ export function CustomMultiSelect<T extends { id: number | string; name: string 
                   onChange={event => setQuery(event.target.value)}
                   placeholder="Поиск..."
                   className="h-8 w-full rounded-md border border-border bg-muted/25 pl-8 pr-2 text-xs text-foreground outline-none focus:border-primary/60"
-                  autoFocus
+                  // Фокус без прокрутки: обычный autoFocus заставлял браузер
+                  // подкрутить страницу к полю, и настройки уезжали вверх.
+                  ref={node => node?.focus({ preventScroll: true })}
                 />
               </div>
             </div>
