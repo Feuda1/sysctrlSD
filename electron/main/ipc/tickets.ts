@@ -2693,13 +2693,10 @@ async function discoverCurrentPhoneCallsUrls(): Promise<string[]> {
 }
 
 /**
- * Поиск в clients идёт перебором и останавливается, лишь набрав страницу: по
- * частому номеру ответ за полсекунды, по редкому — двадцать секунд на весь
- * архив. Пока идёт такое сканирование, соединение занято, а пользователь уже
- * дописал запрос — поэтому прошлый поиск того же раздела обрывается.
+ * Один раздел звонков. Обрывать предыдущий поиск того же раздела здесь нельзя:
+ * прерванный запрос возвращается пустым ответом, и вместо найденного получался
+ * список «звонков нет». Лишний запрос дешевле неверного результата.
  */
-const callsInFlight = new Map<CallSectionKey, AbortController>()
-
 async function fetchCallsSection(
   section: CallSectionKey,
   params: { query?: string; page?: number; perPage?: number } = {}
@@ -2709,18 +2706,10 @@ async function fetchCallsSection(
   const page = params.page ?? 1
   const perPage = params.perPage ?? 50
 
-  callsInFlight.get(section)?.abort()
-  const controller = new AbortController()
-  callsInFlight.set(section, controller)
-
-  try {
-    const records = section === 'current'
-      ? await fetchCurrentPhoneCalls(query, page, perPage, controller.signal)
-      : await fetchPhoneCalls(section, query, page, perPage, controller.signal)
-    return { section, records, fetchedAt: new Date().toISOString() }
-  } finally {
-    if (callsInFlight.get(section) === controller) callsInFlight.delete(section)
-  }
+  const records = section === 'current'
+    ? await fetchCurrentPhoneCalls(query, page, perPage)
+    : await fetchPhoneCalls(section, query, page, perPage)
+  return { section, records, fetchedAt: new Date().toISOString() }
 }
 
 async function executeFetchAllCalls(params: { query?: string; page?: number; perPage?: number } = {}): Promise<CallsResponse> {
