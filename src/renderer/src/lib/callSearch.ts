@@ -45,3 +45,43 @@ export function filterCalls(calls: CallRecord[], query: string): CallRecord[] {
   if (!query.trim()) return calls
   return calls.filter(call => matchesCallQuery(call, query))
 }
+
+export function onlyDigits(value: string): string {
+  return digitsOf(value)
+}
+
+/**
+ * Свой добавочный по уже загруженным «моим» звонкам: ответчик там всегда я.
+ * Берём самый частый, чтобы случайная строка с чужим ответчиком не сбила.
+ */
+export function mostCommonOperator(calls: CallRecord[]): string {
+  const counts = new Map<string, number>()
+  for (const call of calls) {
+    const operator = digitsOf(call.operator ?? '')
+    if (operator) counts.set(operator, (counts.get(operator) ?? 0) + 1)
+  }
+  let best = ''
+  let bestCount = 0
+  for (const [operator, count] of counts) {
+    if (count > bestCount) {
+      best = operator
+      bestCount = count
+    }
+  }
+  return best
+}
+
+/** Склеивает списки звонков без повторов, сохраняя порядок первого вхождения. */
+export function mergeCalls(...lists: CallRecord[][]): CallRecord[] {
+  const seen = new Set<string>()
+  const merged: CallRecord[] = []
+  for (const list of lists) {
+    for (const call of list) {
+      const key = call.id || `${call.callId ?? ''}|${call.startedAt ?? ''}|${call.phone ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(call)
+    }
+  }
+  return merged
+}

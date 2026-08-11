@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { filterCalls } from '@/lib/callSearch'
+import { filterCalls, mergeCalls, mostCommonOperator, onlyDigits } from '@/lib/callSearch'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -1099,11 +1099,50 @@ export default function CallsPage() {
     [search, activeSection, data]
   )
 
-  // Пока ответ по этому запросу не пришёл, показываем найденное среди
-  // загруженного: ждать двадцать секунд, глядя в пустоту, невозможно.
+  // Свой добавочный: в звонках «ответчик» — это он. Берём из профиля clients, а
+  // если там не заполнено — из уже загруженных «моих» звонков, где ответчик я.
+  const { data: clientProfile } = useQuery({
+    queryKey: ['client-profile'],
+    queryFn: () => window.api.auth.getClientProfileSettings(),
+    staleTime: Infinity
+  })
+  const myExtension = useMemo(() => {
+    const fromProfile = onlyDigits(clientProfile?.internalPhone ?? '')
+    if (fromProfile) return fromProfile
+    return mostCommonOperator(loadedBySection.current.mine)
+  }, [clientProfile, data])
+
+  // «Мои» на стороне clients ищутся в разы дольше общей истории: по одному и
+  // тому же номеру 19 секунд против полутора. Поэтому пока идёт долгий поиск,
+  // спрашиваем общую историю и оставляем из неё свои звонки — список получается
+  // тот же, но виден почти сразу.
+  const historyFastPath = useQuery({
+    queryKey: ['calls', 'history', debouncedSearch, 1, callsPerPage],
+    queryFn: () => window.api.calls.getSection('history', {
+      query: debouncedSearch,
+      page: 1,
+      perPage: callsPerPage
+    }),
+    enabled: activeSection === 'mine' && !!debouncedSearch && !!myExtension,
+    staleTime: 15_000
+  })
+  const fastMineMatches = useMemo(() => {
+    if (activeSection !== 'mine' || !myExtension) return []
+    return (historyFastPath.data?.records ?? [])
+      .filter(record => onlyDigits(record.operator ?? '') === myExtension)
+      .map(record => ({ ...record, section: 'mine' as const }))
+  }, [historyFastPath.data, myExtension, activeSection])
+
+  // Пока полный ответ не пришёл, показываем всё, что уже известно: найденное
+  // среди загруженного и свои звонки из быстрой общей истории. Ждать двадцать
+  // секунд, глядя в пустоту, невозможно.
   const awaitingServer = !!debouncedSearch && (isLoading || isFetching)
-  const showingLocal = awaitingServer && localMatches.length > 0 && serverCalls.length === 0
-  const calls = showingLocal ? localMatches : serverCalls
+  const preliminary = useMemo(
+    () => mergeCalls(fastMineMatches, localMatches),
+    [fastMineMatches, localMatches]
+  )
+  const showingPreliminary = awaitingServer && preliminary.length > 0 && serverCalls.length === 0
+  const calls = showingPreliminary ? preliminary : serverCalls
 
   const hasRecordingCol = activeSection !== 'current'
 
@@ -1645,8 +1684,8 @@ export default function CallsPage() {
           // успел найти, — поэтому не страницы, а «показать ещё».
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {awaitingServer && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
-            {showingLocal
-              ? `Найдено среди загруженных: ${localMatches.length} · ищем в архиве…`
+            {showingPreliminary
+              ? `Найдено: ${preliminary.length} · дочитываем архив…`
               : awaitingServer
                 ? 'Ищем в архиве…'
                 : `Найдено: ${calls.length}`}
