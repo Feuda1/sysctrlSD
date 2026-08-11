@@ -4660,6 +4660,20 @@ function formatZammadSearchDate(date: Date): string {
   return date.toISOString().replace(/\.\d+Z$/, 'Z')
 }
 
+// Когда сервер отвечает ошибками, опрос каждые семь секунд только добавляет ему
+// нагрузки. Пауза удваивается с каждой неудачей подряд, до двух минут.
+const POLLER_PERIOD_MS = 7000
+const POLLER_MAX_PAUSE_MS = 120_000
+let pollerFailures = 0
+let pollerSkipUntil = 0
+
+function notePollerFailure(reason: string): void {
+  pollerFailures += 1
+  const pause = Math.min(POLLER_PERIOD_MS * 2 ** pollerFailures, POLLER_MAX_PAUSE_MS)
+  pollerSkipUntil = Date.now() + pause
+  logger.warn(`Опрос уведомлений отложен на ${Math.round(pause / 1000)} с: ${reason}`)
+}
+
 function startNotificationPoller() {
   if (pollerInterval) return
   
@@ -4670,6 +4684,7 @@ function startNotificationPoller() {
   }
 
   pollerInterval = setInterval(async () => {
+    if (Date.now() < pollerSkipUntil) return
     try {
       const stored = readStored()
       const token = stored.zammadToken
@@ -4694,7 +4709,11 @@ function startNotificationPoller() {
       url.searchParams.set('expand', 'true')
 
       const resp = await zammadFetch(url.toString(), { headers: h })
-      if (!resp.ok) return
+      if (!resp.ok) {
+        notePollerFailure(`сервер ответил ${resp.status}`)
+        return
+      }
+      pollerFailures = 0
 
       const data = await resp.json()
       registerUsersFromAssets(data?.assets)
@@ -4824,9 +4843,10 @@ function startNotificationPoller() {
         }
       }
     } catch (err) {
+      notePollerFailure(err instanceof Error ? err.message : String(err))
       logger.error(err)
     }
-  }, 7000)
+  }, POLLER_PERIOD_MS)
 }
 
 async function checkAndNotify(t: any, details: string | null, type: 'message' | 'status' | 'owner' | 'score' | 'create' | 'other') {

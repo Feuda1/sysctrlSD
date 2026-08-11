@@ -1,4 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
+import { backoffInterval } from '@/lib/pollInterval'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -114,6 +115,10 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
+  // Общий для обоих запросов заявки: пока сервер отвечает — раз в пять секунд,
+  // когда падает — всё реже, вплоть до раза в минуту.
+  const pollInterval = (query: { state: { fetchFailureCount: number } }) =>
+    backoffInterval(query.state.fetchFailureCount)
   const macros = useMacrosStore(s => s.macros)
   const ticketScrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -196,14 +201,14 @@ export default function TicketDetailsPage() {
     queryKey: ['ticket-details', idNum],
     queryFn: () => window.api.tickets.getDetails(idNum),
     enabled: idNum > 0,
-    refetchInterval: 5000
+    refetchInterval: pollInterval
   })
 
-  const { data: articles, isLoading: articlesLoading } = useQuery<TicketArticle[]>({
+  const { data: articles, isLoading: articlesLoading, error: articlesError, refetch: refetchArticles, isFetching: articlesFetching } = useQuery<TicketArticle[]>({
     queryKey: ['ticket-articles', idNum],
     queryFn: () => window.api.tickets.getArticles(idNum),
     enabled: idNum > 0,
-    refetchInterval: 5000
+    refetchInterval: pollInterval
   })
 
   const { data: ticketHistory = [], isLoading: historyLoading } = useQuery<TicketHistoryItem[]>({
@@ -739,7 +744,10 @@ export default function TicketDetailsPage() {
     setExpandedAutoReplies(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  if (detailsLoading || articlesLoading) {
+  // Пока запрос падает раз за разом, крутить колесо бессмысленно: без этого
+  // условия страница висела в загрузке вечно, потому что опрос каждые пять
+  // секунд не давал запросу окончательно «сдаться».
+  if ((detailsLoading || articlesLoading) && !detailsError && !articlesError) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -1474,6 +1482,18 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 </div>
               )}
             </div>
+
+            {/* Переписка может не загрузиться, когда сама заявка загрузилась:
+                об этом надо сказать здесь, а не прятать пустой лентой. */}
+            {articlesError && (
+              <ErrorNotice
+                className="mb-4"
+                error={articlesError}
+                fallback="Не удалось загрузить переписку"
+                onRetry={() => void refetchArticles()}
+                isRetrying={articlesFetching}
+              />
+            )}
 
             <div className="flex flex-col gap-5">
               {displayArticles.filter(matchesQuery).length > 0 ? (
