@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
+import { OutboxIndicator } from '@/components/layout/OutboxIndicator'
 import { useAuthStore } from '@/store/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TabBar } from '@/components/layout/TabBar'
@@ -115,6 +116,7 @@ export default function DashboardPage() {
         <TabHost />
       </div>
       <QuickTicketModal />
+      <OutboxIndicator />
     </div>
   )
 }

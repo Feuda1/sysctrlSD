@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { backoffInterval } from '@/lib/pollInterval'
-import { usePendingStatesStore } from '@/store/pendingStates'
+import { useOutboxStore } from '@/store/outbox'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef } from 'react'
@@ -36,7 +36,7 @@ import {
   type ComposerAttachment,
   type ViewerItem
 } from '@/lib/ticketFormat'
-import { readFileAsDataUrl, dataUrlPayload, getUserDisplayName } from '@/lib/utils'
+import { readFileAsDataUrl, getUserDisplayName } from '@/lib/utils'
 import { clearCommentDraft, readCommentDraft, writeCommentDraft } from '@/lib/commentDrafts'
 import { CustomToggle, CustomSelect, CustomMultiSelect, CustomDateTimePicker } from '@/components/ui/custom-controls'
 import { AttachmentTile, AttachmentPreviewCard, MediaViewer, MiniAudioPlayer } from '@/components/tickets/TicketAttachments'
@@ -116,7 +116,6 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
-  const setPendingState = usePendingStatesStore(s => s.setPendingState)
   // Общий для обоих запросов заявки: пока сервер отвечает — раз в пять секунд,
   // когда падает — всё реже, вплоть до раза в минуту.
   const pollInterval = (query: { state: { fetchFailureCount: number } }) =>
@@ -143,8 +142,34 @@ export default function TicketDetailsPage() {
   const [commentBody, setCommentBody] = useState(() => readCommentDraft(idNum))
   const [commentAttachments, setCommentAttachments] = useState<ComposerAttachment[]>([])
   const [commentInternal, setCommentInternal] = useState(false)
-  // The message shown in the thread while it is on its way to Zammad.
-  const [pendingComment, setPendingComment] = useState<PendingComment | null>(null)
+  // Сообщение, которое сейчас в пути. Оно живёт в очереди отправки, а не здесь:
+  // так оно переживает уход из заявки и закрытие вкладки.
+  const outboxJob = useOutboxStore(store =>
+    store.jobs.find(job => job.payload.ticketId === idNum && job.payload.includeArticle)
+  ) ?? null
+  const sendFromOutbox = useOutboxStore(store => store.send)
+  const retryOutboxJob = useOutboxStore(store => store.retry)
+  const dropOutboxJob = useOutboxStore(store => store.drop)
+
+  /** Кнопки блокируются, только пока сообщение этой заявки в пути. */
+  const isSendingComment = outboxJob?.status === 'sending'
+
+  const pendingComment: PendingComment | null = outboxJob
+    ? {
+        draft: {
+          body: outboxJob.payload.draftBody,
+          attachments: outboxJob.payload.attachments,
+          internal: outboxJob.payload.internal,
+          articleType: outboxJob.payload.articleType
+        },
+        timeUnit: outboxJob.payload.timeUnit,
+        includeArticle: true,
+        failed: outboxJob.status === 'failed',
+        error: outboxJob.error,
+        at: outboxJob.at,
+        uploadId: outboxJob.uploadId
+      }
+    : null
   const [uploadProgress, setUploadProgress] = useState<{ sent: number; total: number } | null>(null)
   const [isDraggingFiles, setIsDraggingFiles] = useState(false)
   const [articleQuery, setArticleQuery] = useState('')
@@ -339,8 +364,8 @@ export default function TicketDetailsPage() {
         ? htmlToPlainText(article.body).trim() === draftText
         : getVisibleAttachments(article.attachments).length > 0
     })
-    if (arrived) setPendingComment(null)
-  }, [articles, pendingComment])
+    if (arrived && outboxJob) dropOutboxJob(outboxJob.id)
+  }, [articles, pendingComment, outboxJob, dropOutboxJob])
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -401,62 +426,32 @@ export default function TicketDetailsPage() {
     updateTitleMutation.mutate(next)
   }
 
-  const addCommentMutation = useMutation({
-    mutationFn: async ({ draft, timeUnit, includeArticle, uploadId }: CommentSubmission & { uploadId?: string }) => {
-      const attachments = includeArticle ? draft.attachments.map(attachment => ({
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        data: dataUrlPayload(attachment.dataUrl)
-      })) : []
-      return window.api.tickets.addComment({
-        ticketId: idNum,
-        body: includeArticle && draft.body.trim() ? toHtmlComment(draft.body) : '',
-        internal: draft.internal,
-        articleType: draft.articleType,
-        stateId: commentStateId ?? undefined,
-        ticketTypeId,
-        groupId,
-        ownerId,
-        priorityId,
-        iikoReasonIds,
-        tagIds,
-        pendingTime: commentPendingTime ? new Date(commentPendingTime).toISOString() : null,
-        timeUnit,
-        attachments,
-        uploadId
-      })
-    },
-    onSuccess: async () => {
-      setCommentError('')
-      setCommentWarning('')
-      // Чипы наверху считаются поиском Zammad, а поиск ходит через индекс и
-      // догоняет перевод через несколько секунд. Перевод запоминается и
-      // накладывается на каждый ответ сервера, пока индекс не догонит — иначе
-      // ближайший же перезапрос вернёт заявку в прежний статус.
-      const nextState = filtersData?.states?.find(state => Number(state.id) === commentStateId)
-      if (nextState) {
-        setPendingState(idNum, Number(nextState.id), nextState.name)
-      }
-      queryClient.invalidateQueries({ queryKey: ['ticket-details', idNum] })
-      queryClient.invalidateQueries({ queryKey: ['tickets'] })
-      // The placeholder is removed only once the real article is in the list.
-      // Clearing it earlier made the message blink out and back in.
-      await queryClient.invalidateQueries({ queryKey: ['ticket-articles', idNum] })
-      setPendingComment(null)
-      if (afterCommentSubmitAction === 'close' && activeTabId) {
-        closeTab(activeTabId)
-      }
-    },
-    onError: (error, variables) => {
-      // The text is never thrown away: the message stays in the thread marked as
-      // unsent, with a button to send it again.
-      const reason = error instanceof Error ? error.message : 'Не удалось отправить комментарий'
-      if (variables.includeArticle) {
-        setPendingComment(previous => previous ? { ...previous, failed: true, error: reason } : previous)
-      }
-      setCommentError(reason)
-    }
-  })
+  // Отправка живёт в очереди, а не здесь: страница исчезает вместе с вкладкой, а
+  // ответ сервера должен дождаться кто-то, кто переживёт уход из заявки.
+  const enqueueSend = (submission: CommentSubmission): string => {
+    const nextState = filtersData?.states?.find(state => Number(state.id) === commentStateId)
+    return sendFromOutbox({
+      ticketId: idNum,
+      body: submission.includeArticle && submission.draft.body.trim() ? toHtmlComment(submission.draft.body) : '',
+      internal: submission.draft.internal,
+      articleType: submission.draft.articleType,
+      stateId: commentStateId ?? undefined,
+      ticketTypeId,
+      groupId,
+      ownerId,
+      priorityId,
+      iikoReasonIds,
+      tagIds,
+      pendingTime: commentPendingTime ? new Date(commentPendingTime).toISOString() : null,
+      timeUnit: submission.timeUnit,
+      attachments: submission.includeArticle ? submission.draft.attachments : [],
+      includeArticle: submission.includeArticle
+        && (submission.draft.body.trim().length > 0 || submission.draft.attachments.length > 0),
+      draftBody: submission.draft.body,
+      nextState: nextState ? { id: Number(nextState.id), name: nextState.name } : null,
+      ticketTitle: detailsData?.ticket?.title ?? `Заявка #${idNum}`
+    })
+  }
 
   // Прогресс приходит из main по мере того, как байты уходят в сокет.
   useEffect(() => {
@@ -478,40 +473,37 @@ export default function TicketDetailsPage() {
     // shows what happens next, and waiting here just froze the window.
     setIsTimeModalOpen(false)
     setCommentTimeUnit('')
-    const uploadId = submission.draft.attachments.length > 0
-      ? `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      : undefined
+    setCommentError('')
+    setCommentWarning('')
+    setUploadProgress(null)
+    enqueueSend(submission)
     if (submission.includeArticle && (submission.draft.body.trim() || submission.draft.attachments.length > 0)) {
-      setPendingComment({ ...submission, uploadId, failed: false, at: new Date().toISOString() })
-      setUploadProgress(null)
       setCommentBody('')
       setCommentAttachments([])
       clearCommentDraft(idNum)
     }
-    addCommentMutation.mutate({ ...submission, uploadId })
+    if (afterCommentSubmitAction === 'close' && activeTabId) {
+      // Вкладку можно закрывать сразу: отправку доведёт очередь, а не эта страница.
+      closeTab(activeTabId)
+    }
   }
 
   const cancelUpload = () => {
-    if (pendingComment?.uploadId) window.api.tickets.cancelUpload(pendingComment.uploadId)
+    if (outboxJob?.uploadId) window.api.tickets.cancelUpload(outboxJob.uploadId)
   }
 
   const retryPendingComment = () => {
-    if (!pendingComment) return
-    setPendingComment({ ...pendingComment, failed: false, error: undefined })
+    if (!outboxJob) return
     setCommentError('')
-    addCommentMutation.mutate({
-      draft: pendingComment.draft,
-      timeUnit: pendingComment.timeUnit,
-      includeArticle: pendingComment.includeArticle
-    })
+    retryOutboxJob(outboxJob.id)
   }
 
   /** Drops the unsent message and puts its text back into the composer. */
   const discardPendingComment = () => {
-    if (!pendingComment) return
+    if (!outboxJob || !pendingComment) return
     setCommentBody(current => current.trim() ? current : pendingComment.draft.body)
     setCommentAttachments(current => current.length > 0 ? current : pendingComment.draft.attachments)
-    setPendingComment(null)
+    dropOutboxJob(outboxJob.id)
     setCommentError('')
   }
 
@@ -1139,8 +1131,8 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               )}
 
               <div className="mt-5 flex justify-end">
-                <Button size="sm" onClick={submitComment} disabled={addCommentMutation.isPending}>
-                  {addCommentMutation.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+                <Button size="sm" onClick={submitComment} disabled={isSendingComment}>
+                  {isSendingComment && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
                   Сохранить
                 </Button>
               </div>
@@ -1606,7 +1598,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                               <p className="text-[11px] leading-snug text-destructive">{pendingComment.error}</p>
                             )}
                             <div className="flex items-center gap-2">
-                            <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
+                            <Button size="sm" onClick={retryPendingComment} disabled={isSendingComment} className="h-7 gap-1.5 text-xs">
                               <RefreshCw className="h-3 w-3" />
                               Повторить
                             </Button>
@@ -1694,7 +1686,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
 
                         {isPending && pendingComment?.failed && (
                           <div className="flex items-center gap-2 border-t border-destructive/30 pt-2.5">
-                            <Button size="sm" onClick={retryPendingComment} disabled={addCommentMutation.isPending} className="h-7 gap-1.5 text-xs">
+                            <Button size="sm" onClick={retryPendingComment} disabled={isSendingComment} className="h-7 gap-1.5 text-xs">
                               <RefreshCw className="h-3 w-3" />
                               Повторить
                             </Button>
@@ -1852,7 +1844,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 type="button"
                 variant="ghost"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={addCommentMutation.isPending}
+                disabled={isSendingComment}
                 className="h-9 gap-2"
               >
                 <Paperclip className="h-4 w-4" />
@@ -1861,7 +1853,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               <div className="relative flex items-center shrink-0" ref={macroDropdownRef}>
                 <Button
                   onClick={openTimeModal}
-                  disabled={addCommentMutation.isPending}
+                  disabled={isSendingComment}
                   className="h-9 gap-2 rounded-r-none border-r border-primary-foreground/10"
                 >
                   <Send className="h-4 w-4" />
@@ -1869,7 +1861,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 </Button>
                 <Button
                   type="button"
-                  disabled={addCommentMutation.isPending}
+                  disabled={isSendingComment}
                   onClick={() => setIsMacroDropdownOpen(prev => !prev)}
                   className="h-9 px-2 rounded-l-none border-l-0"
                 >
