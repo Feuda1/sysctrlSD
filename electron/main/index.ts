@@ -324,11 +324,23 @@ app.whenReady().then(() => {
 
   const senderWindow = (event: Electron.IpcMainInvokeEvent) => BrowserWindow.fromWebContents(event.sender)
 
-  ipcMain.handle('window:minimize', (event) => senderWindow(event)?.minimize())
+  // Свернуть и развернуть выполняются следующим тиком. Вызванные прямо из
+  // обработки нажатия, они молча ничего не делали: окно в этот момент занято
+  // системным циклом ввода, и смена его состояния до него не доходит. Закрытие
+  // работало, потому что окно просто уничтожается.
+  ipcMain.handle('window:minimize', (event) => {
+    const win = senderWindow(event)
+    setImmediate(() => {
+      if (win && !win.isDestroyed()) win.minimize()
+    })
+  })
   ipcMain.handle('window:maximize', (event) => {
     const win = senderWindow(event)
-    if (win?.isMaximized()) win.unmaximize()
-    else win?.maximize()
+    setImmediate(() => {
+      if (!win || win.isDestroyed()) return
+      if (win.isMaximized()) win.unmaximize()
+      else win.maximize()
+    })
   })
   ipcMain.handle('window:close', (event) => senderWindow(event)?.close())
   ipcMain.handle('window:isMaximized', (event) => senderWindow(event)?.isMaximized() ?? false)
