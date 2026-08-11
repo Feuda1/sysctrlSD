@@ -84,6 +84,12 @@ declare global {
         onUploadProgress: (callback: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void
         setScore: (ticketId: number, score: string, ignoreClientsRight?: boolean) => Promise<{ ok: true }>
         setTitle: (ticketId: number, title: string) => Promise<{ ok: true; title: string }>
+        applyChecklistTemplate: (ticketId: number, templateId: number) => Promise<{ ok: true }>
+        addChecklistItems: (
+          ticketId: number,
+          items: { name: string; category: string; description: string }[]
+        ) => Promise<{ ok: true }>
+        deleteChecklistItem: (itemId: number) => Promise<{ ok: true }>
         getChecklist: (ticketId: number) => Promise<{ groups: ChecklistGroup[]; templates: { id: number; name: string }[] }>
         setChecklistItem: (
           ticketId: number,

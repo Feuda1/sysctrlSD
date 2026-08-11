@@ -279,6 +279,15 @@ const api = {
       item: { id: number; name: string; description: string; category: string; checked: boolean }
     ): Promise<{ checkedBy: string; checkedAt: string }> =>
       invoke('tickets:setChecklistItem', ticketId, item),
+    applyChecklistTemplate: (ticketId: number, templateId: number): Promise<{ ok: true }> =>
+      invoke('tickets:applyChecklistTemplate', ticketId, templateId),
+    addChecklistItems: (
+      ticketId: number,
+      items: { name: string; category: string; description: string }[]
+    ): Promise<{ ok: true }> =>
+      invoke('tickets:addChecklistItems', ticketId, items),
+    deleteChecklistItem: (itemId: number): Promise<{ ok: true }> =>
+      invoke('tickets:deleteChecklistItem', itemId),
     exportTicket: (
       ticketId: number,
       options: { text: boolean; images: boolean; files: boolean }

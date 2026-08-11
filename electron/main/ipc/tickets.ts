@@ -3527,6 +3527,68 @@ async function setChecklistItemChecked(
   }
 }
 
+async function applyChecklistTemplate(ticketId: number, templateId: number): Promise<{ ok: true }> {
+  const resp = await net.fetch(
+    `${WRAPPER_BASE}/Tickets/AddCheckListItemsFromTemplate?ticketId=${ticketId}&templateId=${templateId}`,
+    { session: wrapperSession() } as any
+  )
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка добавления чек-листа из шаблона:', { status: resp.status, text: text.slice(0, 300) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось добавить чек-лист из шаблона'))
+  }
+  return { ok: true }
+}
+
+async function addChecklistItems(
+  ticketId: number,
+  items: { name: string; category: string; description: string }[]
+): Promise<{ ok: true }> {
+  const prepared = items
+    .map(item => ({
+      Name: item.name.trim(),
+      ZammadTicketId: ticketId,
+      // clients хранит раздел строкой и группирует пункты по ней дословно:
+      // лишний пробел создал бы новый раздел с тем же названием.
+      Category: item.category.trim(),
+      Description: item.description.trim()
+    }))
+    .filter(item => item.Name)
+
+  if (prepared.length === 0) {
+    throw new Error('Название пункта не может быть пустым')
+  }
+
+  const resp = await net.fetch(`${WRAPPER_BASE}/Tickets/PostCheckListItems`, {
+    method: 'POST',
+    session: wrapperSession(),
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(prepared)
+  } as any)
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка добавления пунктов чек-листа:', { status: resp.status, text: text.slice(0, 300) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось добавить пункт'))
+  }
+  return { ok: true }
+}
+
+async function deleteChecklistItem(itemId: number): Promise<{ ok: true }> {
+  const resp = await net.fetch(`${WRAPPER_BASE}/Tickets/DeleteCheckListItem/${itemId}`, {
+    method: 'DELETE',
+    session: wrapperSession(),
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
+  } as any)
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    logger.error('Ошибка удаления пункта чек-листа:', { status: resp.status, text: text.slice(0, 300) })
+    throw new Error(describeHttpError(resp.status, text, 'Не удалось удалить пункт'))
+  }
+  return { ok: true }
+}
+
 async function searchUsers(query: string): Promise<UserSearchResult[]> {
   const token = getToken()
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
@@ -3949,6 +4011,22 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('tickets:getChecklist', async (_event, ticketId: number) => {
     return fetchTicketChecklist(ticketId)
+  })
+
+  ipcMain.handle('tickets:applyChecklistTemplate', async (_event, ticketId: number, templateId: number) => {
+    return applyChecklistTemplate(ticketId, templateId)
+  })
+
+  ipcMain.handle('tickets:addChecklistItems', async (
+    _event,
+    ticketId: number,
+    items: { name: string; category: string; description: string }[]
+  ) => {
+    return addChecklistItems(ticketId, items)
+  })
+
+  ipcMain.handle('tickets:deleteChecklistItem', async (_event, itemId: number) => {
+    return deleteChecklistItem(itemId)
   })
 
   ipcMain.handle('tickets:setChecklistItem', async (
