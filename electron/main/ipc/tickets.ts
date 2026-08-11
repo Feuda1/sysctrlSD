@@ -2563,10 +2563,11 @@ function normalizeJsonCalls(payload: any, section: CallSectionKey, sourceUrl: st
   return getPayloadItems(payload).map((item, index) => normalizeCallRecord(item, section, sourceUrl, index))
 }
 
-async function fetchCallsFromUrl(url: string, section: CallSectionKey): Promise<CallRecord[]> {
+async function fetchCallsFromUrl(url: string, section: CallSectionKey, signal?: AbortSignal): Promise<CallRecord[]> {
   const absoluteUrl = absoluteClientsUrl(url)
   const resp = await net.fetch(absoluteUrl, {
     session: wrapperSession(),
+    signal,
     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
   } as any)
   const contentType = resp.headers.get('content-type') || ''
@@ -2589,13 +2590,13 @@ async function fetchCallsFromUrl(url: string, section: CallSectionKey): Promise<
   return url.includes('/PhoneCalls') ? parsePhoneCallsHtml(body, section, absoluteUrl) : parseCallsHtml(body, section, absoluteUrl)
 }
 
-async function fetchPhoneCalls(section: CallSectionKey, query: string, page: number, perPage: number): Promise<CallRecord[]> {
+async function fetchPhoneCalls(section: CallSectionKey, query: string, page: number, perPage: number, signal?: AbortSignal): Promise<CallRecord[]> {
   const url = new URL(`${WRAPPER_BASE}/PhoneCalls`)
   url.searchParams.set('callsPerPage', String(perPage))
   url.searchParams.set('query', query)
   url.searchParams.set('page', String(page))
   url.searchParams.set('onlyMy', section === 'mine' ? 'true' : 'false')
-  const records = await fetchCallsFromUrl(url.toString(), section)
+  const records = await fetchCallsFromUrl(url.toString(), section, signal)
   return records.map(record => ({ ...record, section }))
 }
 
@@ -2617,7 +2618,7 @@ function parseCallDate(str: string): Date | null {
 // one that worked is remembered and tried first.
 let knownCurrentCallsPath: string | null = null
 
-async function fetchCurrentPhoneCalls(query: string, page: number, perPage: number): Promise<CallRecord[]> {
+async function fetchCurrentPhoneCalls(query: string, page: number, perPage: number, signal?: AbortSignal): Promise<CallRecord[]> {
   const discovered = knownCurrentCallsPath ? [] : await discoverCurrentPhoneCallsUrls()
   const candidates = [
     ...(knownCurrentCallsPath
@@ -2641,7 +2642,7 @@ async function fetchCurrentPhoneCalls(query: string, page: number, perPage: numb
 
   const now = new Date()
   for (const url of Array.from(new Set(candidates))) {
-    const records = await fetchCallsFromUrl(url, 'current')
+    const records = await fetchCallsFromUrl(url, 'current', signal)
     if (records.length > 0) {
       const filtered = records
         .map(record => ({ ...record, section: 'current' as const }))
@@ -2688,6 +2689,37 @@ async function discoverCurrentPhoneCallsUrls(): Promise<string[]> {
   } catch (err) {
     logger.warn('Failed to discover current PhoneCalls urls:', err)
     return []
+  }
+}
+
+/**
+ * Поиск в clients идёт перебором и останавливается, лишь набрав страницу: по
+ * частому номеру ответ за полсекунды, по редкому — двадцать секунд на весь
+ * архив. Пока идёт такое сканирование, соединение занято, а пользователь уже
+ * дописал запрос — поэтому прошлый поиск того же раздела обрывается.
+ */
+const callsInFlight = new Map<CallSectionKey, AbortController>()
+
+async function fetchCallsSection(
+  section: CallSectionKey,
+  params: { query?: string; page?: number; perPage?: number } = {}
+): Promise<{ section: CallSectionKey; records: CallRecord[]; fetchedAt: string }> {
+  await ensureClientsSession()
+  const query = params.query?.trim() ?? ''
+  const page = params.page ?? 1
+  const perPage = params.perPage ?? 50
+
+  callsInFlight.get(section)?.abort()
+  const controller = new AbortController()
+  callsInFlight.set(section, controller)
+
+  try {
+    const records = section === 'current'
+      ? await fetchCurrentPhoneCalls(query, page, perPage, controller.signal)
+      : await fetchPhoneCalls(section, query, page, perPage, controller.signal)
+    return { section, records, fetchedAt: new Date().toISOString() }
+  } finally {
+    if (callsInFlight.get(section) === controller) callsInFlight.delete(section)
   }
 }
 
@@ -4007,6 +4039,10 @@ export function setupTicketsIpc(): void {
 
   ipcMain.handle('users:search', async (_event, query: string) => {
     return searchUsers(query)
+  })
+
+  ipcMain.handle('calls:getSection', async (_event, section: CallSectionKey, params?: { query?: string; page?: number; perPage?: number }) => {
+    return fetchCallsSection(section, params ?? {})
   })
 
   ipcMain.handle('calls:getAll', async (_event, params?: { query?: string; page?: number; perPage?: number }) => {

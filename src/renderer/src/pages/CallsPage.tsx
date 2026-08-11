@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { filterCalls } from '@/lib/callSearch'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -40,6 +41,10 @@ import { AiAssistButton } from '@/components/ai/AiAssistButton'
 type CallsResponse = Awaited<ReturnType<typeof window.api.calls.getAll>>
 type CallRecord = CallsResponse['history'][number]
 type SectionKey = 'history' | 'mine' | 'current'
+
+// При поиске сервер прекращает перебор, набрав страницу, поэтому она мельче.
+const SEARCH_PAGE_SIZE = 15
+const BROWSE_PAGE_SIZE = 50
 
 const SECTIONS: { key: SectionKey; title: string }[] = [
   { key: 'history', title: 'История звонков' },
@@ -951,6 +956,8 @@ export default function CallsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
+  // «Показать ещё» при поиске: страницу увеличиваем, а не листаем.
+  const [extraRows, setExtraRows] = useState(0)
   const [playingCall, setPlayingCall] = useState<CallRecord | null>(null)
   const [isPlayerPlaying, setIsPlayerPlaying] = useState(false)
   const playerRef = useRef<BottomPlayerHandle>(null)
@@ -1033,6 +1040,7 @@ export default function CallsPage() {
 
   useEffect(() => {
     setPage(1)
+    setExtraRows(0)
   }, [debouncedSearch, activeSection])
 
   useEffect(() => {
@@ -1047,19 +1055,55 @@ export default function CallsPage() {
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [activeCreateDropdownCallId, activeBindDropdownCallId])
 
+  // При поиске страница берётся маленькая: clients прекращает перебор, как
+  // только набрал её, и по номеру это разница между четырьмя секундами и
+  // восемнадцатью. Для обычного просмотра размер прежний.
+  const callsPerPage = (debouncedSearch ? SEARCH_PAGE_SIZE : BROWSE_PAGE_SIZE) + extraRows
+
+  // Запрашивается только открытый раздел. Раньше на каждый поиск уходило три
+  // запроса и ждали самый медленный: поиск в «Истории» стоил ещё и времени
+  // «Моих», а редкий запрос там сканируется по двадцать секунд.
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ['calls', debouncedSearch, page],
-    queryFn: () => window.api.calls.getAll({ query: debouncedSearch, page, perPage: 50 }),
+    queryKey: ['calls', activeSection, debouncedSearch, page, callsPerPage],
+    queryFn: () => window.api.calls.getSection(activeSection, {
+      query: debouncedSearch,
+      page,
+      perPage: callsPerPage
+    }),
+    staleTime: 15_000,
+    // Пока идёт поиск, не дёргаем сервер по кругу: он и так занят перебором.
+    refetchInterval: debouncedSearch ? false : 30_000,
+    placeholderData: previous => previous
+  })
+
+  // Список текущих звонков нужен для счётчика на вкладке и стоит копейки
+  // (полтораста миллисекунд), поэтому он живёт отдельно от открытого раздела.
+  const { data: currentCalls } = useQuery({
+    queryKey: ['calls', 'current', '', 1, BROWSE_PAGE_SIZE],
+    queryFn: () => window.api.calls.getSection('current', { query: '', page: 1, perPage: BROWSE_PAGE_SIZE }),
     staleTime: 15_000,
     refetchInterval: 30_000
   })
 
-  const callsBySection = useMemo(() => ({
-    history: data?.history ?? [],
-    mine:    data?.mine    ?? [],
-    current: data?.current ?? []
-  }), [data])
-  const calls = callsBySection[activeSection]
+  const serverCalls = data?.records ?? []
+
+  // Последняя просмотренная страница раздела — по ней ищем мгновенно, пока
+  // сервер перебирает архив.
+  const loadedBySection = useRef<Record<SectionKey, CallRecord[]>>({ history: [], mine: [], current: [] })
+  useEffect(() => {
+    if (!debouncedSearch && data?.records) loadedBySection.current[activeSection] = data.records
+  }, [data, debouncedSearch, activeSection])
+
+  const localMatches = useMemo(
+    () => (search.trim() ? filterCalls(loadedBySection.current[activeSection], search) : []),
+    [search, activeSection, data]
+  )
+
+  // Пока ответ по этому запросу не пришёл, показываем найденное среди
+  // загруженного: ждать двадцать секунд, глядя в пустоту, невозможно.
+  const awaitingServer = !!debouncedSearch && (isLoading || isFetching)
+  const showingLocal = awaitingServer && localMatches.length > 0 && serverCalls.length === 0
+  const calls = showingLocal ? localMatches : serverCalls
 
   const hasRecordingCol = activeSection !== 'current'
 
@@ -1296,8 +1340,8 @@ export default function CallsPage() {
               )}
             >
               {s.title}
-              {s.key === 'current' && callsBySection.current.length > 0 && (
-                <span className="ml-1.5 text-[10px] tabular-nums opacity-60">{callsBySection.current.length}</span>
+              {s.key === 'current' && (currentCalls?.records.length ?? 0) > 0 && (
+                <span className="ml-1.5 text-[10px] tabular-nums opacity-60">{currentCalls?.records.length}</span>
               )}
             </button>
           ))}
@@ -1595,17 +1639,47 @@ export default function CallsPage() {
         />
       )}
 
-      <div className="mt-3 flex shrink-0 items-center justify-between px-1">
-        <span className="text-xs text-muted-foreground">Страница {page}</span>
+      <div className="mt-3 flex shrink-0 items-center justify-between gap-3 px-1">
+        {debouncedSearch ? (
+          // При поиске листать нечем: сервер отдаёт ровно столько, сколько
+          // успел найти, — поэтому не страницы, а «показать ещё».
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {awaitingServer && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+            {showingLocal
+              ? `Найдено среди загруженных: ${localMatches.length} · ищем в архиве…`
+              : awaitingServer
+                ? 'Ищем в архиве…'
+                : `Найдено: ${calls.length}`}
+          </div>
+        ) : (
+          <span className="text-xs text-muted-foreground">Страница {page}</span>
+        )}
+
         <div className="flex items-center gap-1.5">
+          {debouncedSearch ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isFetching || calls.length < callsPerPage}
+              onClick={() => setExtraRows(value => value + SEARCH_PAGE_SIZE)}
+              className="h-8 gap-1 px-2.5 text-xs"
+            >
+              {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Показать ещё
+            </Button>
+          ) : (
+            <>
           <Button type="button" variant="ghost" size="sm" disabled={page <= 1 || isLoading} onClick={() => setPage(page - 1)} className="h-8 gap-1 px-2.5 text-xs">
             <ChevronLeft className="h-3.5 w-3.5" />
             Пред
           </Button>
-          <Button type="button" variant="ghost" size="sm" disabled={isLoading || calls.length < 50} onClick={() => setPage(page + 1)} className="h-8 gap-1 px-2.5 text-xs">
+          <Button type="button" variant="ghost" size="sm" disabled={isLoading || calls.length < callsPerPage} onClick={() => setPage(page + 1)} className="h-8 gap-1 px-2.5 text-xs">
             След
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
+            </>
+          )}
         </div>
       </div>
 
