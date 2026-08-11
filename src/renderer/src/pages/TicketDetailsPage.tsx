@@ -356,15 +356,13 @@ export default function TicketDetailsPage() {
   }
 
 
-  // The composer is cleared the moment the message is sent, so the payload has to
-  // travel with the mutation instead of being read back from the state.
-  // The real article can arrive from the poller before our own refetch finishes,
-  // and then both were on screen at once. Whoever brings it first, the
-  // placeholder goes as soon as the message itself is in the thread.
+  // Настоящее сообщение может прийти от опроса раньше, чем очередь дождётся
+  // ответа сервера. Тогда на экране оказывались оба сразу — своё и пришедшее,
+  // поэтому пришедшее снимает наше, не дожидаясь конца отправки.
   useEffect(() => {
-    if (!pendingComment || pendingComment.failed) return
-    const sentAt = Date.parse(pendingComment.at)
-    const draftText = pendingComment.draft.body.trim()
+    if (!outboxJob || outboxJob.status === 'failed') return
+    const sentAt = Date.parse(outboxJob.at)
+    const draftText = outboxJob.payload.draftBody.trim()
     const arrived = (articles ?? []).some(article => {
       const createdAt = Date.parse(article.createdAt)
       if (!Number.isFinite(createdAt) || createdAt < sentAt - 5000) return false
@@ -372,8 +370,8 @@ export default function TicketDetailsPage() {
         ? htmlToPlainText(article.body).trim() === draftText
         : getVisibleAttachments(article.attachments).length > 0
     })
-    if (arrived && outboxJob) dropOutboxJob(outboxJob.id)
-  }, [articles, pendingComment, outboxJob, dropOutboxJob])
+    if (arrived) dropOutboxJob(outboxJob.id)
+  }, [articles, outboxJob, dropOutboxJob])
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -974,7 +972,6 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
 
   return (
     <div className="relative flex flex-1 flex-col min-h-0 gap-4">
-      <TicketBusyBar busy={isBusy} label={busyLabel} />
       <MediaViewer ticketId={idNum} items={previewItems} index={previewIndex} onIndexChange={setPreviewIndex} onClose={() => setPreviewItems([])} />
       <AnimatePresence>
         {historyModalOpen && (
@@ -1183,6 +1180,10 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           <ChevronLeft className="h-4 w-4" />
           Назад к списку
         </Button>
+
+        {/* Рядом с кнопкой, а не поверх переписки: плашка посреди экрана
+            перекрывала сообщения и цеплялась взглядом сильнее, чем нужно. */}
+        <TicketBusyBar busy={isBusy} label={busyLabel} />
       </div>
 
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-5">

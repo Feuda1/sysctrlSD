@@ -100,9 +100,12 @@ export const useOutboxStore = create<OutboxStore>((set, get) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       await queryClient.invalidateQueries({ queryKey: ['ticket-articles', payload.ticketId] })
 
-      // Сообщение без текста и вложений нечем показывать в ленте — такое
-      // задание снимается сразу, остальные ждут, пока придёт настоящая статья.
-      if (!payload.includeArticle) get().drop(job.id)
+      // Задание снимается всегда: переписка перечитана строкой выше, значит
+      // настоящее сообщение уже в ленте. Раньше снятие ждало, пока страница
+      // сама узнает своё сообщение среди пришедших, и если она этого не делала
+      // (её закрыли, текст не совпал), задание висело «в отправке» вечно, а
+      // сообщение показывалось дважды.
+      get().drop(job.id)
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Не удалось отправить комментарий'
       set(store => ({
