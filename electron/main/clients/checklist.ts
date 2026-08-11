@@ -25,11 +25,25 @@ export interface ChecklistGroup {
   items: ChecklistItem[]
 }
 
+/**
+ * Переносы строк clients хранит тегом <br>, а обычная чистка разметки схлопнула
+ * бы их в пробел — многострочное описание превращалось в кашу.
+ */
+function multilineText(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .split('\n')
+    .map(line => stripHtml(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function textOfElement(html: string, id: string): string {
   // Содержимое ищется по id, потому что классы в разметке повторяются, а
   // вложенность у разных пунктов отличается.
   const match = html.match(new RegExp(`id="${id}"[^>]*>([\\s\\S]*?)</`, 'i'))
-  return match ? stripHtml(match[1]) : ''
+  return match ? multilineText(match[1]) : ''
 }
 
 function parseItem(row: string): ChecklistItem | null {

@@ -40,6 +40,17 @@ describe('parseChecklist', () => {
     expect(groups[0].items[0].category).not.toBe('')
   })
 
+  it('сохраняет переносы строк в описании', () => {
+    const row = `
+      <tr id="trCheckListItem-42">
+        <i id="checkListIcon-42" onclick="toggleCheckboxText(42, 'Раздел');"></i>
+        <div id="checkListName-42">Пункт</div>
+        <small id="checkListDescription-42">Первая строка<br/>Вторая строка</small>
+      </tr>`
+    const item = parseChecklist(row)[0].items[0]
+    expect(item.description).toBe('Первая строка\nВторая строка')
+  })
+
   it('на пустом чек-листе отдаёт пустой список, а не падает', () => {
     expect(parseChecklist('<div class="slimscroll"></div>')).toEqual([])
     expect(parseChecklist('')).toEqual([])
