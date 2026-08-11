@@ -25,6 +25,35 @@ interface ChecklistData {
   templates: { id: number; name: string }[]
 }
 
+/**
+ * В описаниях пунктов почти всегда есть ссылки — на инструкцию, таблицу, чат.
+ * Простым текстом их приходилось копировать руками, поэтому они становятся
+ * настоящими ссылками и открываются во внешнем браузере.
+ */
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/[^\s<>()]+)/g)
+  return (
+    <>
+      {parts.map((part, index) =>
+        /^https?:\/\//.test(part) ? (
+          <a
+            key={index}
+            href={part}
+            target="_blank"
+            rel="noreferrer"
+            onClick={event => event.stopPropagation()}
+            className="break-all text-primary hover:underline"
+          >
+            {part}
+          </a>
+        ) : (
+          part
+        )
+      )}
+    </>
+  )
+}
+
 /** Дата приходит от clients двумя видами: как на странице и как ISO из ответа на отметку. */
 function formatChecked(value: string): string {
   if (!value) return ''
@@ -170,27 +199,55 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
 
   return (
     <div className="bg-card rounded-2xl border border-border/55 p-5 shadow-sm shrink-0 flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setIsOpen(value => !value)}
-          className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground"
+          className="flex items-center gap-2 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground"
         >
           <ListChecks className="h-3.5 w-3.5 text-primary" />
-          Чек-лист {items.length > 0 && `(${done} из ${items.length})`}
+          Чек-лист
+          {items.length > 0 && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold tabular-nums text-muted-foreground">
+              {done}/{items.length}
+            </span>
+          )}
           {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           {items.length > 0 && (
-            <div className="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
-              <motion.div
-                className="h-full rounded-full bg-primary"
-                initial={false}
-                animate={{ width: `${Math.round((done / items.length) * 100)}%` }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
-              />
-            </div>
+            <>
+              {/* Полоска и процент рядом: одна показывает, сколько осталось,
+                  другая называет это числом. */}
+              <div className="hidden items-center gap-2 sm:flex">
+                <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted">
+                  <motion.div
+                    className={cn('h-full rounded-full', done === items.length ? 'bg-emerald-500' : 'bg-primary')}
+                    initial={false}
+                    animate={{ width: `${Math.round((done / items.length) * 100)}%` }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                  />
+                </div>
+                <span className="w-8 text-[11px] font-medium tabular-nums text-muted-foreground">
+                  {Math.round((done / items.length) * 100)}%
+                </span>
+              </div>
+
+              {/* Отмечать всё — действие частое, ему не место в меню «Добавить». */}
+              <button
+                type="button"
+                onClick={() => wholeChecklist.mutate(done === items.length ? 'uncheck' : 'check')}
+                disabled={wholeChecklist.isPending}
+                title={done === items.length ? 'Снять все отметки' : 'Отметить все пункты'}
+                className="flex select-none items-center gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+              >
+                {wholeChecklist.isPending
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  : <CheckCheck className="h-3.5 w-3.5 text-primary" />}
+                {done === items.length ? 'Снять всё' : 'Отметить всё'}
+              </button>
+            </>
           )}
 
           <div className="relative" ref={menuRef}>
@@ -246,16 +303,6 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                   {items.length > 0 && (
                     <>
                       <div className="my-1 h-px bg-border" />
-                      <button
-                        type="button"
-                        onClick={() => wholeChecklist.mutate(done === items.length ? 'uncheck' : 'check')}
-                        disabled={wholeChecklist.isPending}
-                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent disabled:opacity-60"
-                      >
-                        <CheckCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
-                        {done === items.length ? 'Снять все отметки' : 'Отметить всё'}
-                      </button>
-
                       <button
                         type="button"
                         onClick={() => confirmClear ? wholeChecklist.mutate('clear') : setConfirmClear(true)}
@@ -379,61 +426,87 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
             transition={{ duration: 0.18, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-4">
-              {groups.map(group => (
+            <div className="flex flex-col gap-5">
+              {groups.map(group => {
+                const groupDone = group.items.filter(item => item.checked).length
+                return (
                 <div key={group.category || 'без раздела'} className="flex flex-col gap-1.5">
                   {group.category && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {group.category}
-                    </span>
+                    // Заголовок раздела со своим счётчиком и линией до края: без
+                    // неё разделы сливались в одну простыню.
+                    <div className="mb-0.5 flex items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {group.category}
+                      </span>
+                      <span className={cn(
+                        'text-[10px] font-semibold tabular-nums',
+                        groupDone === group.items.length ? 'text-emerald-500' : 'text-muted-foreground/70'
+                      )}>
+                        {groupDone}/{group.items.length}
+                      </span>
+                      <span className="h-px flex-1 bg-border/60" />
+                    </div>
                   )}
 
                   {group.items.map(item => (
                     <div
                       key={item.id}
-                      className="group/item relative flex items-start gap-2.5 rounded-lg border border-border/50 bg-muted/15 px-3 py-2 transition-colors hover:bg-muted/35"
+                      className={cn(
+                        'group/item relative flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors',
+                        item.checked
+                          ? 'border-border/40 bg-muted/10'
+                          : 'border-border/60 bg-muted/25 hover:border-primary/40 hover:bg-muted/40'
+                      )}
                     >
+                    {/* Отметка и название — одна кнопка; описание живёт снаружи,
+                        потому что ссылку внутри кнопки не нажать. */}
                     <button
                       type="button"
                       onClick={() => toggle.mutate(item)}
                       disabled={busyItemId === item.id}
-                      className="flex min-w-0 flex-1 items-start gap-2.5 text-left outline-none disabled:opacity-60"
+                      title={item.checked ? 'Снять отметку' : 'Отметить выполненным'}
+                      className={cn(
+                        'mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border outline-none transition-colors disabled:opacity-60',
+                        item.checked
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-muted-foreground/40 group-hover/item:border-primary/60'
+                      )}
                     >
-                      <span
+                      {busyItemId === item.id
+                        ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                        : item.checked && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </button>
+
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => toggle.mutate(item)}
+                        disabled={busyItemId === item.id}
                         className={cn(
-                          'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
-                          item.checked
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-muted-foreground/40'
+                          'block w-full text-left text-xs font-medium leading-5 outline-none disabled:opacity-60',
+                          item.checked ? 'text-muted-foreground line-through decoration-muted-foreground/40' : 'text-foreground'
                         )}
                       >
-                        {busyItemId === item.id
-                          ? <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                          : item.checked && <Check className="h-3 w-3" />}
-                      </span>
+                        {item.name}
+                      </button>
 
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className={cn(
-                            'block text-xs font-medium',
-                            item.checked ? 'text-muted-foreground line-through' : 'text-foreground'
-                          )}
-                        >
-                          {item.name}
+                      {item.description && (
+                        <p className={cn(
+                          'mt-1 whitespace-pre-wrap break-words text-[11px] leading-[1.45]',
+                          item.checked ? 'text-muted-foreground/60' : 'text-muted-foreground'
+                        )}>
+                          <Linkified text={item.description} />
+                        </p>
+                      )}
+
+                      {item.checked && item.checkedBy && (
+                        <span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">
+                          <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                          {item.checkedBy}
+                          {item.checkedAt && ` · ${formatChecked(item.checkedAt)}`}
                         </span>
-                        {item.description && (
-                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-[11px] leading-4 text-muted-foreground">
-                            {item.description}
-                          </span>
-                        )}
-                        {item.checked && item.checkedBy && (
-                          <span className="mt-1 block text-[10px] text-muted-foreground/80">
-                            {item.checkedBy}
-                            {item.checkedAt && ` · ${formatChecked(item.checkedAt)}`}
-                          </span>
-                        )}
-                      </span>
-                    </button>
+                      )}
+                    </div>
 
                     {/* Проступает при наведении: удаление — не то действие,
                         которое должно быть под рукой постоянно. */}
@@ -449,7 +522,8 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                     </div>
                   ))}
                 </div>
-              ))}
+                )
+              })}
             </div>
           </motion.div>
         )}
