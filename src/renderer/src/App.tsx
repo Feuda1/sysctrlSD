@@ -172,7 +172,6 @@ export default function App() {
   // восстановлении сессии, а не только внутри приложения.
   return (
     <>
-      <WindowControls />
       {status === 'idle' || status === 'loading' ? (
         <RestoreScreen />
       ) : status !== 'authenticated' ? (
@@ -184,6 +183,10 @@ export default function App() {
           <UpdateNotification />
         </>
       )}
+      {/* Строго последними. Область перетаскивания окна собирается по порядку
+          отрисовки, а не по z-index: панель вкладок объявляет себя draggable и,
+          идя следом, отбирала нажатия у кнопок, как бы высоко те ни лежали. */}
+      <WindowControls />
     </>
   )
 }

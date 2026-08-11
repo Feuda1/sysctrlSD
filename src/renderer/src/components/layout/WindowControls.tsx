@@ -18,7 +18,12 @@ export function WindowControls() {
   }, [])
 
   return (
-    <div className="no-drag fixed right-0 top-0 z-[200] flex h-[38px] items-stretch">
+    <div
+      className="no-drag fixed right-0 top-0 z-[200] flex h-[38px] items-stretch"
+      // Дублируется стилем: класс задаёт то же самое, но область перетаскивания
+      // окна считается системой, и полагаться тут на порядок CSS не хочется.
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
       <ControlButton label="Свернуть" onClick={() => window.api.window.minimize()}>
         {/* Тонкие линии рисуются в SVG, а не шрифтом: символы окна в разных
             шрифтах разъезжаются по толщине и высоте. */}
@@ -66,11 +71,14 @@ function ControlButton({
   return (
     <button
       type="button"
-      onClick={onClick}
+      // Именно mousedown: клик по кнопке окна должен срабатывать сразу, как в
+      // системном заголовке, и не зависеть от того, где отпустили мышь.
+      onMouseDown={event => { event.preventDefault(); onClick() }}
       title={label}
       aria-label={label}
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       className={cn(
-        'flex w-[46px] select-none items-center justify-center text-muted-foreground transition-colors',
+        'pointer-events-auto flex w-[46px] select-none items-center justify-center text-muted-foreground transition-colors',
         danger
           ? 'hover:bg-red-600 hover:text-white'
           : 'hover:bg-accent hover:text-foreground'
