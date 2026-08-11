@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Search, User, X } from 'lucide-react'
+import { AlertTriangle, Building, Loader2, Search, User, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { OrganizationDetails } from '@/types/ticket'
@@ -31,7 +31,10 @@ export function ChangeCustomerModal({
   const [mobile, setMobile] = useState('')
   const [telegram, setTelegram] = useState('')
   const [linkNewToOrg, setLinkNewToOrg] = useState(true)
-  const [linkFoundToOrg, setLinkFoundToOrg] = useState(true)
+  // Выключено по умолчанию намеренно. Отметка меняет организацию в профиле
+  // самого клиента, а не привязку заявки: клиент начинает видеть все заявки
+  // новой организации. Один раз так и утекли внутренние заявки наружу.
+  const [linkFoundToOrg, setLinkFoundToOrg] = useState(false)
   const [loading, setLoading] = useState(false)
   const [selectingId, setSelectingId] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -172,17 +175,25 @@ export function ChangeCustomerModal({
             </form>
 
             {organization && (
-              <div className="flex items-center gap-2 mt-1 px-1">
-                <input
-                  type="checkbox"
-                  id="linkFoundToOrg"
-                  checked={linkFoundToOrg}
-                  onChange={(e) => setLinkFoundToOrg(e.target.checked)}
-                  className="h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
-                />
-                <label htmlFor="linkFoundToOrg" className="text-xs text-muted-foreground select-none">
-                  Привязать выбранного клиента к организации «{organization?.name}»
-                </label>
+              <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="linkFoundToOrg"
+                    checked={linkFoundToOrg}
+                    onChange={(e) => setLinkFoundToOrg(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-border text-primary bg-muted/30 focus:ring-0 focus:ring-offset-0"
+                  />
+                  <label htmlFor="linkFoundToOrg" className="select-none text-xs text-foreground">
+                    Перевести выбранного клиента в организацию «{organization?.name}»
+                  </label>
+                </div>
+                {/* Последствие названо прямо: раньше отметка стояла по умолчанию,
+                    и клиента незаметно переносили во внутреннюю организацию. */}
+                <p className="flex items-start gap-1.5 pl-6 text-[11px] leading-4 text-muted-foreground">
+                  <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-500" />
+                  Меняет организацию в профиле клиента, а не только у этой заявки: он увидит все заявки организации «{organization?.name}». Для смены клиента заявки отметка не нужна.
+                </p>
               </div>
             )}
 
@@ -201,6 +212,14 @@ export function ChangeCustomerModal({
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">{u.name}</span>
                     <span className="text-[10px] text-muted-foreground truncate">{u.email || 'Нет почты'}</span>
+                    {/* Видно, из какой организации клиента заберут, если отметка стоит. */}
+                    <span className="truncate text-[10px] text-muted-foreground">
+                      <Building className="mr-1 inline h-2.5 w-2.5" />
+                      {u.organizationName || 'Без организации'}
+                      {linkFoundToOrg && organization?.id && u.organizationId !== organization.id && (
+                        <span className="ml-1 text-amber-500">→ {organization.name}</span>
+                      )}
+                    </span>
                   </div>
                   <Button
                     size="sm"
