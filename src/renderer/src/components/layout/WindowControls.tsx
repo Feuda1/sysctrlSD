@@ -71,9 +71,9 @@ function ControlButton({
   return (
     <button
       type="button"
-      // Именно mousedown: клик по кнопке окна должен срабатывать сразу, как в
-      // системном заголовке, и не зависеть от того, где отпустили мышь.
-      onMouseDown={event => { event.preventDefault(); onClick() }}
+      // Именно по отпусканию кнопки: пока нажатие обрабатывается, Windows
+      // отбрасывает смену состояния окна, и «свернуть» просто теряется.
+      onClick={onClick}
       title={label}
       aria-label={label}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}

@@ -328,19 +328,35 @@ app.whenReady().then(() => {
   // обработки нажатия, они молча ничего не делали: окно в этот момент занято
   // системным циклом ввода, и смена его состояния до него не доходит. Закрытие
   // работало, потому что окно просто уничтожается.
+  /**
+   * Пока Windows обрабатывает нажатие в окне, смена его состояния молча
+   * отбрасывается: команда не откладывается, а теряется совсем. Поэтому действие
+   * повторяется, пока окно не примет его — но не бесконечно.
+   */
+  const applyWindowState = (
+    win: BrowserWindow | null,
+    apply: (win: BrowserWindow) => void,
+    done: (win: BrowserWindow) => boolean,
+    attemptsLeft = 8
+  ): void => {
+    if (!win || win.isDestroyed()) return
+    apply(win)
+    if (done(win) || attemptsLeft <= 0) return
+    setTimeout(() => applyWindowState(win, apply, done, attemptsLeft - 1), 60)
+  }
+
   ipcMain.handle('window:minimize', (event) => {
-    const win = senderWindow(event)
-    setImmediate(() => {
-      if (win && !win.isDestroyed()) win.minimize()
-    })
+    applyWindowState(senderWindow(event), win => win.minimize(), win => win.isMinimized())
   })
   ipcMain.handle('window:maximize', (event) => {
     const win = senderWindow(event)
-    setImmediate(() => {
-      if (!win || win.isDestroyed()) return
-      if (win.isMaximized()) win.unmaximize()
-      else win.maximize()
-    })
+    if (!win) return
+    const wasMaximized = win.isMaximized()
+    applyWindowState(
+      win,
+      target => (wasMaximized ? target.unmaximize() : target.maximize()),
+      target => target.isMaximized() !== wasMaximized
+    )
   })
   ipcMain.handle('window:close', (event) => senderWindow(event)?.close())
   ipcMain.handle('window:isMaximized', (event) => senderWindow(event)?.isMaximized() ?? false)
