@@ -504,6 +504,9 @@ export function TicketTable({
                 <tr
                   key={row.id}
                   data-tab-path={`/dashboard/tickets/${row.original.id}`}
+                  // Заголовок нужен быстрому действию из меню правой кнопки: по
+                  // нему видно, какую заявку доводит очередь отправки.
+                  data-ticket-title={row.original.title}
                   className="cursor-pointer hover:bg-accent/30 transition-colors duration-75"
                   onClick={() => onRowClick?.(row.original.id)}
                 >

@@ -1,6 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
 import { OutboxIndicator } from '@/components/layout/OutboxIndicator'
+import { QuickActionModal } from '@/components/tickets/QuickActionModal'
 import { useAuthStore } from '@/store/auth'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TabBar } from '@/components/layout/TabBar'
@@ -65,6 +67,8 @@ export default function DashboardPage() {
   // Anything tagged with data-tab-path (ticket rows, my-ticket cards, links in
   // articles) gets the same menu, so the actions follow the target instead of
   // the generic edit menu.
+  const [quickAction, setQuickAction] = useState<{ ticketId: number; title: string } | null>(null)
+
   const showTargetContextMenu = async (e: React.MouseEvent) => {
     // An image carries its own menu (copy/save), built in the main process from
     // what is painted under the cursor — never shadow it.
@@ -80,13 +84,25 @@ export default function DashboardPage() {
       { id: 'open', label: 'Открыть' },
       { id: 'new-tab', label: 'Открыть в новой вкладке' },
       { id: 'new-window', label: 'Открыть в отдельном окне' },
-      ...(ticketId ? [separator(), { id: 'copy-id', label: `Копировать номер заявки (${ticketId})` }] : [])
+      ...(ticketId
+        ? [
+            separator(),
+            { id: 'quick-action', label: 'Быстрое действие…' },
+            separator(),
+            { id: 'copy-id', label: `Копировать номер заявки (${ticketId})` }
+          ]
+        : [])
     ])
 
     if (picked === 'open') navigateActive(path)
     else if (picked === 'new-tab') openTab(path)
     else if (picked === 'new-window') openInNewWindow(path)
     else if (picked === 'copy-id' && ticketId) navigator.clipboard.writeText(ticketId)
+    else if (picked === 'quick-action' && ticketId) {
+      // Заголовок берём из строки таблицы: он же попадёт в плашку отправки.
+      const title = el?.getAttribute('data-ticket-title') || `Заявка #${ticketId}`
+      setQuickAction({ ticketId: Number(ticketId), title })
+    }
   }
 
   const openFromEvent = (e: React.MouseEvent) => {
@@ -116,6 +132,15 @@ export default function DashboardPage() {
         <TabHost />
       </div>
       <QuickTicketModal />
+      <AnimatePresence>
+        {quickAction && (
+          <QuickActionModal
+            ticketId={quickAction.ticketId}
+            ticketTitle={quickAction.title}
+            onClose={() => setQuickAction(null)}
+          />
+        )}
+      </AnimatePresence>
       <OutboxIndicator />
     </div>
   )
