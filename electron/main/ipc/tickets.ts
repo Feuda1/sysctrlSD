@@ -19,6 +19,7 @@ import {
   stripHtml,
   ticketIdFromUrl,
   CLIENTS_CREATE_FORM_RE,
+  parseClientsDateTime,
 } from '../clients/parse'
 import {
   parseChecklist,
@@ -906,10 +907,23 @@ function isFallbackUserName(name?: string): boolean {
   return value.includes('@') || /^[a-z][a-z0-9._-]*$/i.test(value)
 }
 
+/** Свежее состояние заявки со стороны clients — то, что видит человек в вебе. */
+interface ClientsTicketState {
+  stateId: number | null
+  stateName: string
+  pendingTime: string | null
+  score: number | null
+}
+
 interface ClientsTicketIndex {
   byZammadId: Map<string, string>
   byZammadNumber: Map<string, string>
   byClientNumber: Map<string, { zammadId?: string; zammadNumber?: string }>
+  /**
+   * Состояния по id заявки. Поиск Zammad живёт индексом и отстаёт — на больном
+   * сервере на часы, — а clients читает базу напрямую и отвечает за секунду.
+   */
+  freshById: Map<string, ClientsTicketState>
 }
 
 // net.fetch() ignores the `session` option — that option belongs to
@@ -1748,6 +1762,20 @@ function getClientsTicketsFromPayload(payload: any): any[] {
 function addClientsTicketToIndex(index: ClientsTicketIndex, raw: any): void {
   const clientNumber = pickClientsNumber(raw)
   if (!clientNumber) return
+
+  // Номер заявки в clients — это и есть её id в Zammad, так что состояние
+  // ложится прямо на строку списка без всякого сопоставления.
+  const stateName = String(raw.State ?? raw.state ?? '').trim()
+  if (stateName) {
+    const stateId = parseInt(String(raw.StateId ?? raw.stateId ?? ''), 10)
+    const rawScore = parseFloat(String(raw.Score ?? raw.score ?? '').replace(',', '.'))
+    index.freshById.set(clientNumber, {
+      stateId: Number.isFinite(stateId) ? stateId : null,
+      stateName,
+      pendingTime: parseClientsDateTime(raw.PendingTime ?? raw.pendingTime),
+      score: Number.isFinite(rawScore) ? rawScore : null
+    })
+  }
   const zammadId = pickClientsZammadId(raw)
   const zammadNumber = pickClientsZammadNumber(raw)
   if (zammadId) index.byZammadId.set(zammadId, clientNumber)
@@ -1765,7 +1793,8 @@ async function fetchClientsTicketIndex(): Promise<ClientsTicketIndex> {
   const index: ClientsTicketIndex = {
     byZammadId: new Map(),
     byZammadNumber: new Map(),
-    byClientNumber: new Map()
+    byClientNumber: new Map(),
+    freshById: new Map()
   }
 
   try {
@@ -1796,19 +1825,40 @@ async function fetchClientsTicketIndex(): Promise<ClientsTicketIndex> {
     logger.warn('Failed to build clients ticket index:', err)
   }
 
-  clientsIndexCache = { expiresAt: Date.now() + 5 * 60_000, index }
+  // Полминуты: раньше индекс жил пять минут, потому что нужен был только для
+  // номеров, а теперь он же держит состояния — они должны быть свежими. Четыре
+  // запроса к clients укладываются в полторы секунды, это дешевле, чем ждать
+  // поисковый индекс Zammad.
+  clientsIndexCache = { expiresAt: Date.now() + 30_000, index }
   return index
 }
 
 function applyClientsNumbers(tickets: Ticket[], index: ClientsTicketIndex): Ticket[] {
-  return tickets.map(ticket => ({
-    ...ticket,
-    clientNumber:
-      ticket.clientNumber ||
-      index.byZammadId.get(String(ticket.id)) ||
-      index.byZammadNumber.get(ticket.number) ||
-      null
-  }))
+  return tickets.map(ticket => {
+    // Состояние, срок ожидания и баллы берём у clients, если они там есть:
+    // список строится поиском Zammad, а тот живёт индексом и отстаёт.
+    const fresh = index.freshById.get(String(ticket.id))
+    const patched: Ticket = fresh
+      ? {
+          ...ticket,
+          state: {
+            id: fresh.stateId ?? ticket.state.id,
+            name: fresh.stateName || ticket.state.name
+          },
+          pendingTime: fresh.pendingTime,
+          score: fresh.score
+        }
+      : ticket
+
+    return {
+      ...patched,
+      clientNumber:
+        ticket.clientNumber ||
+        index.byZammadId.get(String(ticket.id)) ||
+        index.byZammadNumber.get(ticket.number) ||
+        null
+    }
+  })
 }
 
 

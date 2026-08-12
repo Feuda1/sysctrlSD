@@ -3,6 +3,7 @@ import {
   clientsFormErrorMessage,
   extractSelectedOptions,
   isClientsCreateForm,
+  parseClientsDateTime,
   isClientsLoginPage,
   parseClientsScoreControl,
   stripHtml,
@@ -103,5 +104,28 @@ describe('helpers', () => {
   it('takes only selected options', () => {
     const html = '<select id="ticket_tags"><option value="a" selected>A</option><option value="b">B</option></select>'
     expect(extractSelectedOptions(html, 'ticket_tags')).toEqual(['a'])
+  })
+})
+
+describe('parseClientsDateTime', () => {
+  it('читает дату с переводом строки посреди значения', () => {
+    // Именно так clients отдаёт «Отложено до» в списке заявок.
+    const iso = parseClientsDateTime('13.08.2026\r15:00:00')
+    expect(iso).not.toBeNull()
+    const date = new Date(iso!)
+    expect(date.getFullYear()).toBe(2026)
+    expect(date.getMonth()).toBe(7)
+    expect(date.getDate()).toBe(13)
+    expect(date.getHours()).toBe(15)
+  })
+
+  it('обходится без секунд', () => {
+    expect(parseClientsDateTime('01.02.2026 09:30')).not.toBeNull()
+  })
+
+  it('на пустом и мусорном значении отдаёт null', () => {
+    expect(parseClientsDateTime('')).toBeNull()
+    expect(parseClientsDateTime(null)).toBeNull()
+    expect(parseClientsDateTime('никогда')).toBeNull()
   })
 })
