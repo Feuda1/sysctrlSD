@@ -207,16 +207,15 @@ export function QuickActionModal({
                 </button>
                 {/* label, а не div: тогда попадание в любую точку строки ставит
                     курсор в поле, а не только по узкому вводу посередине. */}
-                <label className="flex h-10 cursor-text items-center justify-center gap-1 rounded-md border border-border bg-muted/30 px-2 text-sm font-semibold tabular-nums text-foreground focus-within:border-primary/60">
+                <label className="flex h-10 cursor-text items-center justify-center gap-1 rounded-md border border-border bg-muted/30 text-sm font-semibold tabular-nums text-foreground focus-within:border-primary/60">
                   <input
                     value={timeUnit}
                     onChange={event => setTimeUnit(event.target.value.replace(/\D/g, ''))}
                     inputMode="numeric"
                     autoFocus
-                    placeholder="0"
-                    className="min-w-0 flex-1 bg-transparent text-right text-sm font-semibold tabular-nums text-foreground outline-none placeholder:text-muted-foreground"
+                    className="w-16 bg-transparent text-center text-sm font-semibold tabular-nums text-foreground outline-none"
                   />
-                  <span className="shrink-0 text-muted-foreground">мин</span>
+                  <span>мин</span>
                 </label>
                 <button
                   type="button"
