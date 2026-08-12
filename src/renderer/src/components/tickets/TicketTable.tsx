@@ -6,12 +6,13 @@ import {
   type SortingState
 } from '@tanstack/react-table'
 import { useMemo } from 'react'
-import { ArrowUp, ArrowDown, ChevronsUpDown, Inbox, ChevronLeft, ChevronRight, Mail, Phone, Send, Globe, StickyNote } from 'lucide-react'
+import { ArrowUp, ArrowDown, ChevronsUpDown, Inbox, ChevronLeft, ChevronRight, Mail, Phone, Send, Globe, StickyNote, Loader2 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, formatScore, DEFAULT_COLUMNS } from '@/types/ticket'
 import type { Ticket } from '@/types/ticket'
+import { useOutboxStore } from '@/store/outbox'
 
 const FALLBACK_COLUMN_WIDTH = 160
 const COLUMN_WIDTHS: Record<string, number> = {
@@ -30,6 +31,25 @@ const COLUMN_WIDTHS: Record<string, number> = {
   closedAt: 116,
   pendingTime: 116,
   score: 64
+}
+
+/**
+ * Колечко у заявки, по которой сейчас идёт изменение. Список обновляется не
+ * мгновенно, и без этого непонятно, какую заявку уже обработал, а какую нет.
+ */
+function BusyDot({ ticketId }: { ticketId: number }) {
+  const busy = useOutboxStore(store =>
+    store.jobs.some(job => job.payload.ticketId === ticketId && job.status !== 'failed')
+  )
+  const failed = useOutboxStore(store =>
+    store.jobs.some(job => job.payload.ticketId === ticketId && job.status === 'failed')
+  )
+
+  if (failed) {
+    return <span title="Изменение не применилось" className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" />
+  }
+  if (!busy) return null
+  return <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
 }
 
 function getColumnWidth(column: ColumnDef<Ticket>): number {
@@ -136,11 +156,16 @@ const columns: ColumnDef<Ticket>[] = [
     size: 92,
     enableSorting: true,
     cell: ({ row }) => (
-      <span
-        className="block truncate font-mono text-[11px] text-muted-foreground tabular-nums whitespace-nowrap"
-        title={`Clients #: ${row.original.clientNumber || 'не найден'} | Zammad id: ${row.original.id} | Zammad #: ${row.original.number || '—'}`}
-      >
-        {row.original.clientNumber || row.original.id}
+      <span className="flex items-center gap-1.5">
+        {/* Пока изменение по заявке в пути, у строки крутится колечко: список
+            обновляется не сразу, и иначе не видно, какую заявку уже обработал. */}
+        <BusyDot ticketId={row.original.id} />
+        <span
+          className="block truncate font-mono text-[11px] text-muted-foreground tabular-nums whitespace-nowrap"
+          title={`Clients #: ${row.original.clientNumber || 'не найден'} | Zammad id: ${row.original.id} | Zammad #: ${row.original.number || '—'}`}
+        >
+          {row.original.clientNumber || row.original.id}
+        </span>
       </span>
     )
   },
