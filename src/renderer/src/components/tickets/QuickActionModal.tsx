@@ -56,7 +56,11 @@ export function QuickActionModal({
     if (!ticket) return
     setStateId(ticket.state?.id ?? null)
     setReasonIds((ticket.iikoReasons ?? []).map((reason: { id: string }) => reason.id))
-    setPendingTime(dateTimeLocalFromRaw(ticket.pendingTime) || tomorrowAtEleven())
+    // Прошлое время ожидания подставлять бессмысленно: сюда заходят, чтобы
+    // отложить заново. Оставляем дату заявки, только если она ещё впереди.
+    const current = ticket.pendingTime ? new Date(ticket.pendingTime) : null
+    const stillAhead = current && !Number.isNaN(current.getTime()) && current.getTime() > Date.now()
+    setPendingTime(stillAhead ? dateTimeLocalFromRaw(ticket.pendingTime) : tomorrowAtEleven())
   }, [ticket?.id])
 
   const stateOptions = [
@@ -162,6 +166,33 @@ export function QuickActionModal({
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Добавить минут
               </span>
+              {/* Тот же ввод, что в окне отправки заявки: минус, поле, плюс. */}
+              <div className="grid grid-cols-[40px_1fr_40px] items-center gap-2">
+                <button
+                  type="button"
+                  className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/20 text-sm font-semibold hover:bg-muted/45"
+                  onClick={() => setTimeUnit(String(Math.max(0, Number(timeUnit || 0) - 5)))}
+                >
+                  -
+                </button>
+                <div className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/30 text-sm font-semibold tabular-nums text-foreground">
+                  <input
+                    value={timeUnit}
+                    onChange={event => setTimeUnit(event.target.value.replace(/\D/g, ''))}
+                    inputMode="numeric"
+                    autoFocus
+                    className="w-16 bg-transparent text-center text-sm font-semibold tabular-nums text-foreground outline-none"
+                  />
+                  <span>мин</span>
+                </div>
+                <button
+                  type="button"
+                  className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/20 text-sm font-semibold hover:bg-muted/45"
+                  onClick={() => setTimeUnit(String(Number(timeUnit || 0) + 5))}
+                >
+                  +
+                </button>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {TIME_PRESETS.map(minutes => (
                   <button
