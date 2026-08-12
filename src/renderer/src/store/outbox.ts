@@ -37,7 +37,8 @@ export interface OutboxJob {
   id: string
   payload: OutboxPayload
   at: string
-  status: 'sending' | 'failed'
+  /** sending — в пути, sent — принято сервером, ждём появления в ленте. */
+  status: 'sending' | 'sent' | 'failed'
   error?: string
   /** Задан, только когда едут вложения: за ними можно следить и отменять. */
   uploadId?: string
@@ -52,6 +53,9 @@ interface OutboxStore {
   drop: (jobId: string) => void
   jobsForTicket: (ticketId: number) => OutboxJob[]
 }
+
+/** Сколько ждать появления доставленного сообщения в ленте, прежде чем забыть. */
+const FORGET_SENT_AFTER_MS = 90_000
 
 function newId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -100,12 +104,26 @@ export const useOutboxStore = create<OutboxStore>((set, get) => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] })
       await queryClient.invalidateQueries({ queryKey: ['ticket-articles', payload.ticketId] })
 
-      // Задание снимается всегда: переписка перечитана строкой выше, значит
-      // настоящее сообщение уже в ленте. Раньше снятие ждало, пока страница
-      // сама узнает своё сообщение среди пришедших, и если она этого не делала
-      // (её закрыли, текст не совпал), задание висело «в отправке» вечно, а
-      // сообщение показывалось дважды.
-      get().drop(job.id)
+      // Сервер принял сообщение, но в перечитанной переписке его может ещё не
+      // быть: с вложениями оно появляется с задержкой. Снять задание сейчас —
+      // значит убрать сообщение с экрана и вернуть его через несколько секунд,
+      // когда придёт настоящее. Поэтому задание остаётся, но уже без пометки
+      // «отправляется»: сообщение доставлено, ждём только его появления.
+      const delivered = (queryClient.getQueryData<{ id: number; createdAt: string }[]>(
+        ['ticket-articles', payload.ticketId]
+      ) ?? []).some(article => Date.parse(article.createdAt) >= Date.parse(job.at) - 5000)
+
+      if (delivered) {
+        get().drop(job.id)
+        return
+      }
+
+      set(store => ({
+        jobs: store.jobs.map(item => (item.id === job.id ? { ...item, status: 'sent' } : item))
+      }))
+      // Страховка: если настоящее сообщение так и не показалось, задание не
+      // должно висеть вечно.
+      setTimeout(() => get().drop(job.id), FORGET_SENT_AFTER_MS)
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Не удалось отправить комментарий'
       set(store => ({

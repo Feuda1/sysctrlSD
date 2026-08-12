@@ -69,12 +69,22 @@ interface CommentSubmission {
 const PENDING_ARTICLE_ID = -1
 
 /** Stands in for the timestamp until the message is delivered. */
-function PendingStatus({ failed, bytes, progress }: { failed: boolean; bytes: number; progress: { sent: number; total: number } | null }) {
+function PendingStatus({ failed, sent, bytes, progress }: { failed: boolean; sent: boolean; bytes: number; progress: { sent: number; total: number } | null }) {
   if (failed) {
     return (
       <span className="flex items-center gap-1 text-destructive">
         <AlertCircle className="h-3 w-3" />
         Не отправлено
+      </span>
+    )
+  }
+  // Сервер уже принял сообщение, ждём только, когда оно придёт в переписку.
+  // Убирать его с экрана на это время нельзя: оно мигало и появлялось снова.
+  if (sent) {
+    return (
+      <span className="flex items-center gap-1 opacity-70">
+        <Check className="h-3 w-3" />
+        Отправлено
       </span>
     )
   }
@@ -194,6 +204,8 @@ export default function TicketDetailsPage() {
   const [commentPendingTime, setCommentPendingTime] = useState('')
   const [commentTimeUnit, setCommentTimeUnit] = useState('')
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false)
+  /** Какие подсказки показывать — решено на момент открытия окна отправки. */
+  const [suggestionsAtOpen, setSuggestionsAtOpen] = useState({ state: false, reason: false })
   const [commentError, setCommentError] = useState('')
   const [isMacroDropdownOpen, setIsMacroDropdownOpen] = useState(false)
   const [macroSearchQuery, setMacroSearchQuery] = useState('')
@@ -517,12 +529,11 @@ export default function TicketDetailsPage() {
 
   // Shown in the send dialog, and only for what is actually missing: the state
   // if it was left as it was, the reason if none was picked.
-  const showStateSuggestion = suggestStateOnSend
-    && isTimeModalOpen
-    && commentStateId === detailsData?.ticket?.state?.id
-  const showReasonSuggestion = suggestReasonOnSend
-    && isTimeModalOpen
-    && iikoReasonIds.length === 0
+  // Показывать ли подсказки, решается один раз при открытии окна. Раньше условие
+  // проверялось на каждой отрисовке, и выбранный статус тут же убирал сам список
+  // из окна: со стороны это выглядело как «нажал — ничего не происходит».
+  const showStateSuggestion = isTimeModalOpen && suggestionsAtOpen.state
+  const showReasonSuggestion = isTimeModalOpen && suggestionsAtOpen.reason
 
   const openTimeModal = (keepTime: boolean | any = false) => {
     const isKeepTime = keepTime === true
@@ -546,6 +557,10 @@ export default function TicketDetailsPage() {
     if (!isKeepTime) {
       setCommentTimeUnit('')
     }
+    setSuggestionsAtOpen({
+      state: suggestStateOnSend && !isChangingState,
+      reason: suggestReasonOnSend && iikoReasonIds.length === 0
+    })
     setIsTimeModalOpen(true)
   }
 
@@ -1608,7 +1623,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                           </div>
                           <div className="flex items-center gap-2 text-[11px] text-zinc-550 dark:text-zinc-400 font-mono">
                             <ChannelIcon channel={isNote ? 'note' : article.type} />
-                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
+                            <span>{isPending ? <PendingStatus failed={!!pendingComment?.failed} sent={outboxJob?.status === 'sent'} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
                           </div>
                         </div>
 
@@ -1710,7 +1725,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                               {isNote && <span className="text-amber-500 dark:text-amber-400 font-semibold ml-1">(Внутренняя заметка)</span>}
                             </span>
                           </div>
-                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
+                          <span className="font-mono">{isPending ? <PendingStatus failed={!!pendingComment?.failed} sent={outboxJob?.status === 'sent'} bytes={pendingAttachmentBytes} progress={uploadProgress} /> : formatTicketDate(article.createdAt)}</span>
                         </div>
 
                         <ArticleBody html={article.body} ticketId={idNum} articleId={article.id} onImageOpen={openInlineImage} />
