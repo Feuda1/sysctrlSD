@@ -1063,7 +1063,9 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   >
                     -
                   </button>
-                  <div className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/30 text-sm font-semibold tabular-nums text-foreground">
+                  {/* label, а не div: попадание в любую точку строки ставит
+                      курсор в поле, а не только по узкому вводу посередине. */}
+                  <label className="flex h-10 cursor-text items-center justify-center rounded-md border border-border bg-muted/30 text-sm font-semibold tabular-nums text-foreground focus-within:border-primary/60">
                     <input
                       value={commentTimeUnit}
                       onChange={event => updateCommentTimeUnit(event.target.value)}
@@ -1072,7 +1074,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                       className="w-16 bg-transparent text-center text-sm font-semibold tabular-nums text-foreground outline-none"
                     />
                     <span>мин</span>
-                  </div>
+                  </label>
                   <button
                     type="button"
                     className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/20 text-sm font-semibold hover:bg-muted/45"
