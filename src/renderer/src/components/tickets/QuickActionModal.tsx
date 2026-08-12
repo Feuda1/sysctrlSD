@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Clock, Send, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Clock, Loader2, Send, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CustomSelect, CustomMultiSelect, CustomDateTimePicker, CustomToggle } from '@/components/ui/custom-controls'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useOutboxStore } from '@/store/outbox'
-import { isPendingOrClosedState, toHtmlComment, tomorrowAtEleven } from '@/lib/ticketFormat'
+import { dateTimeLocalFromRaw, toHtmlComment, tomorrowAtEleven } from '@/lib/ticketFormat'
+import { getStateBadgeClass } from '@/types/ticket'
 import { cn } from '@/lib/utils'
 
 const TIME_PRESETS = [0, 5, 10, 20, 30, 60]
@@ -13,6 +15,10 @@ const TIME_PRESETS = [0, 5, 10, 20, 30, 60]
 /**
  * Быстрое действие по заявке из списка: отложить, сменить статус, указать
  * причину и при необходимости написать комментарий — не открывая саму заявку.
+ *
+ * Поля те же и выглядят так же, как в самой заявке, и заполнены её текущими
+ * значениями: иначе непонятно, что меняешь, а пустая причина затёрла бы
+ * выставленную.
  *
  * Отправка уходит в общую очередь, поэтому окно закрывается сразу: можно тут же
  * взяться за следующую заявку, а очередь доведёт каждую до конца сама.
@@ -29,6 +35,15 @@ export function QuickActionModal({
   const { data: filtersData } = useTicketFilters()
   const send = useOutboxStore(store => store.send)
 
+  // Тот же ключ, что и у страницы заявки: если она открыта, данные возьмутся из
+  // кэша мгновенно.
+  const { data: detailsData, isLoading } = useQuery<{ ticket: any }>({
+    queryKey: ['ticket-details', ticketId],
+    queryFn: () => window.api.tickets.getDetails(ticketId),
+    staleTime: 15_000
+  })
+  const ticket = detailsData?.ticket
+
   const [timeUnit, setTimeUnit] = useState('')
   const [stateId, setStateId] = useState<number | null>(null)
   const [pendingTime, setPendingTime] = useState('')
@@ -37,24 +52,49 @@ export function QuickActionModal({
   const [internal, setInternal] = useState(false)
   const [error, setError] = useState('')
 
-  const states = filtersData?.states ?? []
-  const reasons = filtersData?.iikoReasons ?? []
-  const selectedState = states.find(state => Number(state.id) === stateId)
-  // «Отложено до» имеет смысл только для отложенных и закрываемых состояний.
-  const needsPendingTime = isPendingOrClosedState(selectedState?.name)
+  useEffect(() => {
+    if (!ticket) return
+    setStateId(ticket.state?.id ?? null)
+    setReasonIds((ticket.iikoReasons ?? []).map((reason: { id: string }) => reason.id))
+    setPendingTime(dateTimeLocalFromRaw(ticket.pendingTime) || tomorrowAtEleven())
+  }, [ticket?.id])
 
-  const pickState = (id: number) => {
-    setStateId(id)
-    const name = states.find(state => Number(state.id) === id)?.name
-    // Раз уж откладываем — сразу предлагаем завтра на 11:00, как и в заявке.
-    if (isPendingOrClosedState(name) && !pendingTime) setPendingTime(tomorrowAtEleven())
-  }
+  const stateOptions = [
+    ...(ticket?.state ? [ticket.state] : []),
+    ...(filtersData?.states ?? [])
+  ].filter((item, index, list) => item.id && list.findIndex(other => Number(other.id) === Number(item.id)) === index)
+
+  const reasonOptions = [
+    ...((ticket?.iikoReasons ?? []) as { id: string; name: string }[]),
+    ...(filtersData?.iikoReasons ?? [])
+  ].filter((item, index, list) => item.id && list.findIndex(other => String(other.id) === String(item.id)) === index)
+
+  const stateBadge = (state: { id: number | string; name: string }) => (
+    <span
+      className={cn(
+        'inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        !filtersData?.stateColors?.[Number(state.id)] && getStateBadgeClass(state.name)
+      )}
+      style={filtersData?.stateColors?.[Number(state.id)] ? {
+        backgroundColor: `${filtersData.stateColors[Number(state.id)]}15`,
+        color: filtersData.stateColors[Number(state.id)],
+        borderColor: `${filtersData.stateColors[Number(state.id)]}30`
+      } : undefined}
+    >
+      <span className="truncate">{state.name}</span>
+    </span>
+  )
 
   const submit = () => {
     const minutes = Number(timeUnit || 0)
     const hasComment = body.trim().length > 0
-    if (!stateId && !hasComment && !minutes && reasonIds.length === 0) {
-      setError('Нечего применять: укажите время, статус, причину или комментарий')
+    const selectedState = stateOptions.find(state => Number(state.id) === stateId)
+
+    if (!ticket) return
+    const stateChanged = stateId !== null && stateId !== ticket.state?.id
+    const reasonsChanged = reasonIds.join(',') !== (ticket.iikoReasons ?? []).map((r: { id: string }) => r.id).join(',')
+    if (!stateChanged && !reasonsChanged && !hasComment && !minutes) {
+      setError('Нечего применять: укажите время, состояние, причину или комментарий')
       return
     }
 
@@ -64,15 +104,17 @@ export function QuickActionModal({
       internal,
       articleType: 'note',
       stateId: stateId ?? undefined,
-      // Причины и время передаются, только когда заданы: пустой список стёр бы
-      // уже выставленные причины, а нулевое время ничего не значит.
-      iikoReasonIds: reasonIds.length > 0 ? reasonIds : undefined,
-      pendingTime: needsPendingTime && pendingTime ? new Date(pendingTime).toISOString() : null,
+      // Причины отправляются только если их меняли: пустой список стёр бы уже
+      // выставленные.
+      iikoReasonIds: reasonsChanged ? reasonIds : undefined,
+      pendingTime: pendingTime ? new Date(pendingTime).toISOString() : null,
       timeUnit: minutes > 0 ? minutes : null,
       attachments: [],
       includeArticle: hasComment,
       draftBody: body,
-      nextState: selectedState ? { id: Number(selectedState.id), name: selectedState.name } : null,
+      nextState: selectedState && stateChanged
+        ? { id: Number(selectedState.id), name: selectedState.name }
+        : null,
       ticketTitle
     })
     onClose()
@@ -90,14 +132,13 @@ export function QuickActionModal({
         initial={{ opacity: 0, scale: 0.96 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.96 }}
-        className="flex w-full max-w-md flex-col gap-4 rounded-2xl border border-border bg-card p-5 shadow-2xl"
+        className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
         onKeyDown={event => {
           if (event.key === 'Escape') onClose()
-          // Ctrl+Enter — привычная отправка, не отрывая рук от клавиатуры.
           if (event.key === 'Enter' && event.ctrlKey) submit()
         }}
       >
-        <div className="flex items-start justify-between gap-3">
+        <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
               <Clock className="h-3.5 w-3.5 text-primary" />
@@ -110,93 +151,95 @@ export function QuickActionModal({
           </Button>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Затраченное время
-          </label>
-          <div className="flex flex-wrap gap-1.5">
-            {TIME_PRESETS.map(minutes => (
-              <button
-                key={minutes}
-                type="button"
-                onClick={() => setTimeUnit(minutes === 0 ? '' : String(minutes))}
-                className={cn(
-                  'rounded-md border px-2 py-1 text-xs transition-colors',
-                  Number(timeUnit || 0) === minutes
-                    ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/45 hover:text-foreground'
-                )}
-              >
-                {minutes === 0 ? 'Без времени' : `${minutes} мин`}
-              </button>
-            ))}
+        {isLoading && !ticket ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Загружаем заявку…
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Добавить минут
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {TIME_PRESETS.map(minutes => (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() => setTimeUnit(minutes === 0 ? '' : String(minutes))}
+                    className={cn(
+                      'rounded-md border px-2 py-1 text-xs transition-colors',
+                      Number(timeUnit || 0) === minutes
+                        ? 'border-primary/40 bg-primary/10 text-primary'
+                        : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/45 hover:text-foreground'
+                    )}
+                  >
+                    {minutes === 0 ? 'Без времени' : `${minutes} мин`}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Состояние
-          </label>
-          <CustomSelect
-            value={stateId}
-            options={states}
-            onChange={state => pickState(Number(state.id))}
-            placeholder="Не менять"
-          />
-        </div>
+            <div className="mt-4 grid gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground">Состояние</span>
+                <CustomSelect
+                  value={stateId}
+                  options={stateOptions}
+                  onChange={state => setStateId(Number(state.id))}
+                  placeholder={ticket?.state?.name || 'Выберите состояние'}
+                  renderValue={state => state ? stateBadge(state) : <span className="text-muted-foreground">Выберите состояние</span>}
+                  renderOption={state => stateBadge(state)}
+                />
+              </div>
 
-        {needsPendingTime && (
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              В ожидании до
-            </label>
-            <CustomDateTimePicker value={pendingTime} onChange={setPendingTime} />
-          </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground">В ожидании до</span>
+                <CustomDateTimePicker value={pendingTime} onChange={setPendingTime} />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted-foreground">Причина обращения (ИКО)</span>
+                <CustomMultiSelect
+                  values={reasonIds}
+                  options={reasonOptions}
+                  onChange={reasons => setReasonIds(reasons.map(reason => String(reason.id)))}
+                  placeholder="Выберите причину"
+                  renderChip={reason => <span className="truncate text-sky-700 dark:text-sky-300">{reason.name}</span>}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Комментарий</span>
+                  <CustomToggle checked={internal} onChange={setInternal} label="Приватно" />
+                </div>
+                <textarea
+                  value={body}
+                  onChange={event => setBody(event.target.value)}
+                  placeholder="Напишите комментарий..."
+                  rows={3}
+                  className="w-full resize-y rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"
+                />
+              </div>
+            </div>
+
+            {error && (
+              <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
+              <Button variant="ghost" size="sm" onClick={onClose}>Отмена</Button>
+              <Button size="sm" onClick={submit} className="gap-1.5">
+                <Send className="h-3.5 w-3.5" />
+                Применить
+              </Button>
+            </div>
+          </>
         )}
-
-        {reasons.length > 0 && (
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Причина обращения
-            </label>
-            <CustomMultiSelect
-              values={reasonIds}
-              options={reasons}
-              onChange={items => setReasonIds(items.map(item => String(item.id)))}
-              placeholder="Не менять"
-            />
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Комментарий
-            </label>
-            <CustomToggle checked={internal} onChange={setInternal} label="Приватно" />
-          </div>
-          <textarea
-            value={body}
-            onChange={event => setBody(event.target.value)}
-            placeholder="Необязательно"
-            rows={3}
-            className="w-full resize-y rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"
-          />
-        </div>
-
-        {error && (
-          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </p>
-        )}
-
-        <div className="flex justify-end gap-2 border-t border-border pt-3">
-          <Button variant="ghost" size="sm" onClick={onClose}>Отмена</Button>
-          <Button size="sm" onClick={submit} className="gap-1.5">
-            <Send className="h-3.5 w-3.5" />
-            Применить
-          </Button>
-        </div>
       </motion.div>
     </motion.div>
   )
