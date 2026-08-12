@@ -109,10 +109,11 @@ export const useOutboxStore = create<OutboxStore>((set, get) => {
       // значит убрать сообщение с экрана и вернуть его через несколько секунд,
       // когда придёт настоящее. Поэтому задание остаётся, но уже без пометки
       // «отправляется»: сообщение доставлено, ждём только его появления.
-      const delivered = (queryClient.getQueryData<{ id: number; createdAt: string }[]>(
+      const delivered = !payload.includeArticle || (queryClient.getQueryData<{ id: number; createdAt: string }[]>(
         ['ticket-articles', payload.ticketId]
       ) ?? []).some(article => Date.parse(article.createdAt) >= Date.parse(job.at) - 5000)
 
+      // Без сообщения ждать нечего: показывать в ленте нечего, задание закрыто.
       if (delivered) {
         get().drop(job.id)
         return
