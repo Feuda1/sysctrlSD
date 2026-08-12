@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button'
 import { CustomSelect, CustomMultiSelect, CustomDateTimePicker, CustomToggle } from '@/components/ui/custom-controls'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { useOutboxStore } from '@/store/outbox'
-import { dateTimeLocalFromRaw, toHtmlComment, tomorrowAtEleven } from '@/lib/ticketFormat'
+import {
+  dateTimeLocalFromRaw,
+  isPendingOrClosedState,
+  isReasonRequiredState,
+  toHtmlComment,
+  tomorrowAtEleven
+} from '@/lib/ticketFormat'
+import { useUIStore } from '@/store/ui'
 import { getStateBadgeClass } from '@/types/ticket'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +40,8 @@ export function QuickActionModal({
   onClose: () => void
 }) {
   const { data: filtersData } = useTicketFilters()
+  const allowStatusWithoutComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
+  const allowPendingWithoutReason = useUIStore(s => s.allowTicketPendingWithoutReason)
   const send = useOutboxStore(store => store.send)
 
   // Тот же ключ, что и у страницы заявки: если она открыта, данные возьмутся из
@@ -51,6 +60,8 @@ export function QuickActionModal({
   const [body, setBody] = useState('')
   const [internal, setInternal] = useState(false)
   const [error, setError] = useState('')
+  /** Дата, с которой окно открылось: по ней видно, переносил ли срок пользователь. */
+  const [initialPendingTime, setInitialPendingTime] = useState('')
 
   useEffect(() => {
     if (!ticket) return
@@ -60,7 +71,9 @@ export function QuickActionModal({
     // отложить заново. Оставляем дату заявки, только если она ещё впереди.
     const current = ticket.pendingTime ? new Date(ticket.pendingTime) : null
     const stillAhead = current && !Number.isNaN(current.getTime()) && current.getTime() > Date.now()
-    setPendingTime(stillAhead ? dateTimeLocalFromRaw(ticket.pendingTime) : tomorrowAtEleven())
+    const initial = stillAhead ? dateTimeLocalFromRaw(ticket.pendingTime) : tomorrowAtEleven()
+    setPendingTime(initial)
+    setInitialPendingTime(initial)
   }, [ticket?.id])
 
   const stateOptions = [
@@ -97,7 +110,24 @@ export function QuickActionModal({
     if (!ticket) return
     const stateChanged = stateId !== null && stateId !== ticket.state?.id
     const reasonsChanged = reasonIds.join(',') !== (ticket.iikoReasons ?? []).map((r: { id: string }) => r.id).join(',')
-    if (!stateChanged && !reasonsChanged && !hasComment && !minutes) {
+    // Перенос срока — тоже изменение: без этого смена одной даты считалась
+    // «нечего применять» и молча ничего не делала.
+    const pendingChanged = pendingTime !== initialPendingTime
+
+    // Те же требования, что и в самой заявке, и так же отключаются скрытыми
+    // настройками: закрывать без причины и переводить без комментария нельзя,
+    // пока это не разрешено явно.
+    const stateName = stateOptions.find(state => Number(state.id) === stateId)?.name
+    if (isReasonRequiredState(stateName) && !allowPendingWithoutReason && reasonIds.length === 0) {
+      setError('Необходимо выбрать причину обращения, чтобы закрыть заявку')
+      return
+    }
+    if (stateChanged && isPendingOrClosedState(stateName) && !allowStatusWithoutComment && !hasComment) {
+      setError('Необходимо написать комментарий для изменения состояния заявки')
+      return
+    }
+
+    if (!stateChanged && !reasonsChanged && !pendingChanged && !hasComment && !minutes) {
       setError('Нечего применять: укажите время, состояние, причину или комментарий')
       return
     }
@@ -175,16 +205,19 @@ export function QuickActionModal({
                 >
                   -
                 </button>
-                <div className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/30 text-sm font-semibold tabular-nums text-foreground">
+                {/* label, а не div: тогда попадание в любую точку строки ставит
+                    курсор в поле, а не только по узкому вводу посередине. */}
+                <label className="flex h-10 cursor-text items-center justify-center gap-1 rounded-md border border-border bg-muted/30 px-2 text-sm font-semibold tabular-nums text-foreground focus-within:border-primary/60">
                   <input
                     value={timeUnit}
                     onChange={event => setTimeUnit(event.target.value.replace(/\D/g, ''))}
                     inputMode="numeric"
                     autoFocus
-                    className="w-16 bg-transparent text-center text-sm font-semibold tabular-nums text-foreground outline-none"
+                    placeholder="0"
+                    className="min-w-0 flex-1 bg-transparent text-right text-sm font-semibold tabular-nums text-foreground outline-none placeholder:text-muted-foreground"
                   />
-                  <span>мин</span>
-                </div>
+                  <span className="shrink-0 text-muted-foreground">мин</span>
+                </label>
                 <button
                   type="button"
                   className="flex h-10 items-center justify-center rounded-md border border-border bg-muted/20 text-sm font-semibold hover:bg-muted/45"
