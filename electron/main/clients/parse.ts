@@ -156,3 +156,20 @@ export function ticketIdFromUrl(value: unknown): number | null {
   const match = String(value ?? '').match(TICKET_DETAILS_URL_RE)
   return match ? parseTicketIdValue(match[1]) : null
 }
+
+/**
+ * Даты clients отдаёт как «13.08.2026\r15:00:00» — с переводом строки посреди
+ * значения. Приводим к обычному ISO, чтобы дальше по приложению они выглядели
+ * так же, как даты из Zammad.
+ */
+export function parseClientsDateTime(value: unknown): string | null {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  const match = text.match(/(\d{2})\.(\d{2})\.(\d{4})[^\d]+(\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (!match) return null
+  const [, day, month, year, hour, minute, second] = match
+  const date = new Date(
+    Number(year), Number(month) - 1, Number(day),
+    Number(hour), Number(minute), Number(second ?? '0')
+  )
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
