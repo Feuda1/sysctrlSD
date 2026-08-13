@@ -1,14 +1,20 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { cleanBody } from '@/lib/ticketFormat'
 
 /** Renders an article body: sanitises inline styles, resolves attachment images
- * and makes every picture open in the media viewer. */
+ * and makes every picture open in the media viewer.
+ *
+ * Обёрнут в memo и считает разметку через useMemo не для красоты: cleanBody
+ * поднимает целый DOM через DOMParser и обходит каждый элемент. Пока это шло на
+ * каждую отрисовку страницы, набор текста в поле комментария перезапускал разбор
+ * всех сообщений заявки на каждую нажатую клавишу - отсюда и рывки. */
 
-export function ArticleBody({ html, ticketId, articleId, className, onImageOpen }: { html: string; ticketId: number; articleId: number; className?: string; onImageOpen?: (dataUrl: string, filename: string) => void }) {
+export const ArticleBody = memo(function ArticleBody({ html, ticketId, articleId, className, onImageOpen }: { html: string; ticketId: number; articleId: number; className?: string; onImageOpen?: (dataUrl: string, filename: string) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const onImageOpenRef = useRef(onImageOpen)
   onImageOpenRef.current = onImageOpen
+  const cleanedHtml = useMemo(() => cleanBody(html), [html])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -18,7 +24,7 @@ export function ArticleBody({ html, ticketId, articleId, className, onImageOpen 
       const src = img.getAttribute('src')
       if (!src) return
 
-      // Make every image zoomable — clicking opens it in the media viewer.
+      // Make every image zoomable - clicking opens it in the media viewer.
       img.style.cursor = 'zoom-in'
       if (!img.dataset.viewerBound) {
         img.dataset.viewerBound = '1'
@@ -68,7 +74,7 @@ export function ArticleBody({ html, ticketId, articleId, className, onImageOpen 
         "[&_*]:!bg-transparent [&_*]:!text-inherit [&_a]:!text-primary [&_table]:!border-border [&_td]:!border-border [&_th]:!border-border",
         className
       )}
-      dangerouslySetInnerHTML={{ __html: cleanBody(html) }}
+      dangerouslySetInnerHTML={{ __html: cleanedHtml }}
     />
   )
-}
+})

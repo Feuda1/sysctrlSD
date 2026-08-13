@@ -6,17 +6,17 @@ import { TicketBusyBar } from '@/components/tickets/TicketBusyBar'
 import { TicketChecklist } from '@/components/tickets/TicketChecklist'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
-import { useUIStore } from '@/store/ui'
+import { resolveScrollDownSide, useUIStore } from '@/store/ui'
 import { useAuthStore } from '@/store/auth'
 import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, formatScore } from '@/types/ticket'
 import type { Ticket, TicketArticle, TicketAttachment, TicketCustomer, OrganizationDetails, TicketHistoryItem } from '@/types/ticket'
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AiAssistButton } from '@/components/ai/AiAssistButton'
+import { CommentInput, type CommentInputHandle } from '@/components/tickets/CommentInput'
 import { useTabsStore } from '@/store/tabs'
 import { useMacrosStore } from '@/store/macros'
 import {
@@ -40,7 +40,7 @@ import {
   type ViewerItem
 } from '@/lib/ticketFormat'
 import { readFileAsDataUrl, getUserDisplayName } from '@/lib/utils'
-import { clearCommentDraft, readCommentDraft, writeCommentDraft } from '@/lib/commentDrafts'
+import { clearCommentDraft } from '@/lib/commentDrafts'
 import { CustomToggle, CustomSelect, CustomMultiSelect, CustomDateTimePicker } from '@/components/ui/custom-controls'
 import { AttachmentTile, AttachmentPreviewCard, MediaViewer, MiniAudioPlayer } from '@/components/tickets/TicketAttachments'
 import { TicketExportModal } from '@/components/tickets/TicketExportModal'
@@ -53,7 +53,7 @@ import { MergeTicketModal } from '@/components/tickets/MergeTicketModal'
 import { CreateSubTicketModal } from '@/components/tickets/CreateSubTicketModal'
 import { ChannelIcon, PriorityCircles } from '@/components/tickets/TicketBadges'
 
-/** Everything needed to send a comment — and to send it again if it fails. */
+/** Everything needed to send a comment - and to send it again if it fails. */
 interface CommentSubmission {
   draft: {
     body: string
@@ -92,7 +92,7 @@ function PendingStatus({ failed, sent, bytes, progress }: { failed: boolean; sen
     <span className="flex items-center gap-1 opacity-70">
       <Loader2 className="h-3 w-3 animate-spin" />
       {/* Attachments travel inside the same request, so their size explains the
-          wait — there is no per-file progress to show. */}
+          wait - there is no per-file progress to show. */}
       {progress
         ? `Отправляется… ${formatAttachmentSize(progress.sent)} из ${formatAttachmentSize(progress.total)}`
         : bytes > 0 ? `Отправляется… ${formatAttachmentSize(bytes)}` : 'Отправляется…'}
@@ -102,7 +102,7 @@ function PendingStatus({ failed, sent, bytes, progress }: { failed: boolean; sen
 
 interface PendingComment extends CommentSubmission {
   failed: boolean
-  /** Why it did not go through — shown right in the message. */
+  /** Why it did not go through - shown right in the message. */
   error?: string
   at: string
   /** Set only when attachments ride along: they are what can be followed and cancelled. */
@@ -129,14 +129,17 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
-  // Общий для обоих запросов заявки: пока сервер отвечает — раз в пять секунд,
-  // когда падает — всё реже, вплоть до раза в минуту.
+  // Общий для обоих запросов заявки: пока сервер отвечает - раз в пять секунд,
+  // когда падает - всё реже, вплоть до раза в минуту.
   const pollInterval = (query: { state: { fetchFailureCount: number } }) =>
     backoffInterval(query.state.fetchFailureCount)
   const macros = useMacrosStore(s => s.macros)
   const ticketScrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  // Текст комментария живёт внутри CommentInput - страница берёт его отсюда в
+  // тот момент, когда он действительно нужен.
+  const commentInputRef = useRef<CommentInputHandle>(null)
+  const commentBodyNow = () => commentInputRef.current?.getValue() ?? ''
   const composerRef = useRef<HTMLDivElement | null>(null)
 
   const [expandedAutoReplies, setExpandedAutoReplies] = useState<Record<number, boolean>>({})
@@ -152,7 +155,6 @@ export default function TicketDetailsPage() {
   const [isOwnerDropdownOpen, setIsOwnerDropdownOpen] = useState(false)
   const [ownerSearchQuery, setOwnerSearchQuery] = useState('')
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
-  const [commentBody, setCommentBody] = useState(() => readCommentDraft(idNum))
   const [commentAttachments, setCommentAttachments] = useState<ComposerAttachment[]>([])
   const [commentInternal, setCommentInternal] = useState(false)
   // Сообщение, которое сейчас в пути. Оно живёт в очереди отправки, а не здесь:
@@ -204,7 +206,7 @@ export default function TicketDetailsPage() {
   const [commentPendingTime, setCommentPendingTime] = useState('')
   const [commentTimeUnit, setCommentTimeUnit] = useState('')
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false)
-  /** Какие подсказки показывать — решено на момент открытия окна отправки. */
+  /** Какие подсказки показывать - решено на момент открытия окна отправки. */
   const [suggestionsAtOpen, setSuggestionsAtOpen] = useState({ state: false, reason: false })
   const [commentError, setCommentError] = useState('')
   const [isMacroDropdownOpen, setIsMacroDropdownOpen] = useState(false)
@@ -238,6 +240,16 @@ export default function TicketDetailsPage() {
   const allowTicketStatusWithoutPublicComment = useUIStore(s => s.allowTicketStatusWithoutPublicComment)
   const afterCommentSubmitAction = useUIStore(s => s.afterCommentSubmitAction)
   const hideScrollDownArrow = useUIStore(s => s.hideScrollDownArrow)
+  const ticketPanelSide = useUIStore(s => s.ticketPanelSide)
+  const scrollDownSide = useUIStore(s => s.scrollDownSide)
+  const sidebarSide = useUIStore(s => s.sidebarSide)
+  const panelOnLeft = ticketPanelSide === 'left'
+  const scrollDownOnLeft = resolveScrollDownSide(scrollDownSide, ticketPanelSide) === 'left'
+  // Тот край, к которому прижата боковая панель, начинается на 56px правее (или
+  // левее) края окна - иначе кнопка легла бы прямо на неё.
+  const scrollDownButtonPosition = scrollDownOnLeft
+    ? (sidebarSide === 'left' ? 'left-[62px]' : 'left-6')
+    : (sidebarSide === 'right' ? 'right-[62px]' : 'right-6')
   const openCreatedTicket = useUIStore(s => s.openCreatedTicket)
   const allowScoreWithoutClientsRight = useUIStore(s => s.allowScoreWithoutClientsRight)
   const suggestStateOnSend = useUIStore(s => s.suggestStateOnSend)
@@ -339,7 +351,7 @@ export default function TicketDetailsPage() {
 
 
   // The options, the current value and the right to change it all come from the
-  // clients ticket page — the app never decides on its own who may award points.
+  // clients ticket page - the app never decides on its own who may award points.
   const scoreOptions: { value: string; label: string }[] = (detailsData?.ticket as any)?.scoreOptions ?? []
   const scoreValue: string | null = (detailsData?.ticket as any)?.scoreValue ?? null
   const clientsAllowsScore: boolean = (detailsData?.ticket as any)?.canEditScore === true
@@ -371,7 +383,7 @@ export default function TicketDetailsPage() {
 
 
   // Настоящее сообщение может прийти от опроса раньше, чем очередь дождётся
-  // ответа сервера. Тогда на экране оказывались оба сразу — своё и пришедшее,
+  // ответа сервера. Тогда на экране оказывались оба сразу - своё и пришедшее,
   // поэтому пришедшее снимает наше, не дожидаясь конца отправки.
   useEffect(() => {
     if (!outboxJob || outboxJob.status === 'failed') return
@@ -393,7 +405,7 @@ export default function TicketDetailsPage() {
   const titleInputRef = useRef<HTMLInputElement | null>(null)
 
   // Новый заголовок показывается сразу, ещё до ответа сервера, и держится до
-  // тех пор, пока заявка не перечитана — иначе на экране успел бы моргнуть
+  // тех пор, пока заявка не перечитана - иначе на экране успел бы моргнуть
   // старый текст и через секунду смениться новым.
   const [savingTitle, setSavingTitle] = useState<string | null>(null)
 
@@ -401,7 +413,7 @@ export default function TicketDetailsPage() {
     mutationFn: (title: string) => window.api.tickets.setTitle(idNum, title),
     onSuccess: (result) => {
       setTitleError('')
-      // Сервер принял заголовок — вписываем его прямо в кэш и снимаем индикатор.
+      // Сервер принял заголовок - вписываем его прямо в кэш и снимаем индикатор.
       // Ждать перечитывания заявки и списка незачем: это долгие запросы, а ответ
       // на них уже известен. Они обновляются следом, в фоне.
       queryClient.setQueryData(['ticket-details', idNum], (current: typeof detailsData) =>
@@ -482,14 +494,8 @@ export default function TicketDetailsPage() {
     })
   }, [pendingComment?.uploadId])
 
-  // Saved with a delay so every keystroke does not hit the disk.
-  useEffect(() => {
-    const timer = window.setTimeout(() => writeCommentDraft(idNum, commentBody), 400)
-    return () => window.clearTimeout(timer)
-  }, [idNum, commentBody])
-
   const sendComment = (submission: CommentSubmission) => {
-    // The dialog has done its job once the time is entered — the message itself
+    // The dialog has done its job once the time is entered - the message itself
     // shows what happens next, and waiting here just froze the window.
     setIsTimeModalOpen(false)
     setCommentTimeUnit('')
@@ -498,7 +504,7 @@ export default function TicketDetailsPage() {
     setUploadProgress(null)
     enqueueSend(submission)
     if (submission.includeArticle && (submission.draft.body.trim() || submission.draft.attachments.length > 0)) {
-      setCommentBody('')
+      commentInputRef.current?.setValue('')
       setCommentAttachments([])
       clearCommentDraft(idNum)
     }
@@ -521,7 +527,7 @@ export default function TicketDetailsPage() {
   /** Drops the unsent message and puts its text back into the composer. */
   const discardPendingComment = () => {
     if (!outboxJob || !pendingComment) return
-    setCommentBody(current => current.trim() ? current : pendingComment.draft.body)
+    commentInputRef.current?.setValue(current => current.trim() ? current : pendingComment.draft.body)
     setCommentAttachments(current => current.length > 0 ? current : pendingComment.draft.attachments)
     dropOutboxJob(outboxJob.id)
     setCommentError('')
@@ -531,7 +537,7 @@ export default function TicketDetailsPage() {
   // if it was left as it was, the reason if none was picked.
   // Показывать ли подсказки, решается один раз при открытии окна. Раньше условие
   // проверялось на каждой отрисовке, и выбранный статус тут же убирал сам список
-  // из окна: со стороны это выглядело как «нажал — ничего не происходит».
+  // из окна: со стороны это выглядело как «нажал - ничего не происходит».
   const showStateSuggestion = isTimeModalOpen && suggestionsAtOpen.state
   const showReasonSuggestion = isTimeModalOpen && suggestionsAtOpen.reason
 
@@ -547,7 +553,7 @@ export default function TicketDetailsPage() {
 
     const isChangingState = commentStateId !== detailsData?.ticket?.state?.id
     const isTargetPendingOrClosed = isPendingOrClosedState(selectedStateName)
-    if (isChangingState && isTargetPendingOrClosed && !allowTicketStatusWithoutPublicComment && commentBody.trim() === '') {
+    if (isChangingState && isTargetPendingOrClosed && !allowTicketStatusWithoutPublicComment && commentBodyNow().trim() === '') {
       setCommentWarning('Необходимо написать комментарий для изменения состояния заявки')
       return
     }
@@ -572,7 +578,7 @@ export default function TicketDetailsPage() {
     }
     sendComment({
       draft: {
-        body: commentBody,
+        body: commentBodyNow(),
         attachments: commentAttachments,
         internal: commentInternal,
         articleType: commentArticleType || getAutoArticleType(detailsData?.ticket?.channel)
@@ -604,31 +610,6 @@ export default function TicketDetailsPage() {
     }
   }
 
-  const insertCommentText = (text: string) => {
-    if (!text) return
-    const textarea = commentTextareaRef.current
-    if (!textarea) {
-      setCommentBody(current => `${current}${text}`)
-      return
-    }
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    setCommentBody(current => `${current.slice(0, start)}${text}${current.slice(end)}`)
-    window.requestAnimationFrame(() => {
-      const cursor = start + text.length
-      textarea.focus()
-      textarea.setSelectionRange(cursor, cursor)
-    })
-  }
-
-  const handleCommentPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.files)
-    if (files.length === 0) return
-    event.preventDefault()
-    insertCommentText(event.clipboardData.getData('text/plain'))
-    void addComposerFiles(files)
-  }
-
   // A drag abandoned outside the composer (dropped elsewhere, or cancelled with
   // Escape) fires no event on it, so the highlight would stay on for good.
   useEffect(() => {
@@ -646,7 +627,7 @@ export default function TicketDetailsPage() {
   const handleComposerDragOver = (event: React.DragEvent) => {
     // preventDefault unconditionally: without it the browser refuses the drop and
     // the drop event never fires at all. The types list is not reliable enough to
-    // gate on — on Windows it can come back empty while a file is being dragged.
+    // gate on - on Windows it can come back empty while a file is being dragged.
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
     if (!isDraggingFiles) setIsDraggingFiles(true)
@@ -671,7 +652,7 @@ export default function TicketDetailsPage() {
     }
 
     // An image dragged straight from a browser or a chat carries no file, only a
-    // link to it — so it has to be fetched before it can be attached.
+    // link to it - so it has to be fetched before it can be attached.
     const url = (event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain')).trim()
     if (/^https?:\/\//i.test(url)) void addComposerFilesFromUrl(url)
   }
@@ -760,10 +741,13 @@ export default function TicketDetailsPage() {
   }
 
   // Opens the viewer directly on an inline image clicked inside a message body.
-  const openInlineImage = (dataUrl: string, filename: string) => {
+  // Ссылка не должна меняться от отрисовки к отрисовке: иначе memo вокруг
+  // ArticleBody не удержит ни одного сообщения - каждое считало бы, что пропсы
+  // изменились, и заново разбирало бы разметку.
+  const openInlineImage = useCallback((dataUrl: string, filename: string) => {
     setPreviewItems([{ articleId: 0, id: 0, filename: filename || 'Изображение', mimeType: 'image/*', size: 0, preloadedDataUrl: dataUrl }])
     setPreviewIndex(0)
-  }
+  }, [])
 
   const toggleAutoReply = (id: number) => {
     setExpandedAutoReplies(prev => ({ ...prev, [id]: !prev[id] }))
@@ -802,7 +786,7 @@ export default function TicketDetailsPage() {
     setCopiedClientsLink(true)
     window.setTimeout(() => setCopiedClientsLink(false), 1200)
   }
-  // Что именно сейчас применяется — чтобы полоска наверху не была безымянной.
+  // Что именно сейчас применяется - чтобы полоска наверху не была безымянной.
   const busyLabel = savingTitle
     ? 'Сохраняем заголовок…'
     : scoreSaving
@@ -822,7 +806,9 @@ export default function TicketDetailsPage() {
     ...(filtersData?.groups ?? [])
   ].filter((item, index, list) => item.id && list.findIndex(other => Number(other.id) === Number(item.id)) === index)
   const ownerOptions = [
-    ...(ticket.owner.id ? [ticket.owner as { id: number; name: string }] : []),
+    // Служебная учётка приходит без имени - безымянный пункт в списке
+    // ответственных выбрать нельзя, да и незачем.
+    ...(ticket.owner.id && ticket.owner.name ? [ticket.owner as { id: number; name: string }] : []),
     ...(currentUser?.id ? [{ id: currentUser.id, name: [currentUser.firstname, currentUser.lastname].filter(Boolean).join(' ').trim() || currentUser.login || currentUser.email }] : []),
     ...(filtersData?.agents ?? [])
   ].filter((item, index, list) => item.id && list.findIndex(other => other.id === item.id) === index)
@@ -912,10 +898,11 @@ export default function TicketDetailsPage() {
   const pendingAttachmentBytes = (pendingComment?.draft.attachments ?? []).reduce((sum, item) => sum + (item.size || 0), 0)
 
   // Выжимка из переписки для помощника правки: по ней он не путает имена,
-  // названия и обращение на «вы». Без useMemo намеренно: это место — уже за
-  // ранними возвратами, а хук здесь ломает порядок хуков при загрузке заявки.
-  // Работы на три сообщения, считать каждый раз дешевле, чем городить хук выше.
-  const aiContext = buildAiContext(chatArticles)
+  // названия и обращение на «вы». Хук здесь поставить нельзя - это место уже за
+  // ранними возвратами, - поэтому передаём не готовую строку, а способ её
+  // получить: считается она один раз, при нажатии на помощника, а не на каждый
+  // символ, набранный в поле комментария.
+  const getAiContext = () => buildAiContext(chatArticles)
 
   const displayArticles: TicketArticle[] = pendingComment
     ? [...chatArticles, {
@@ -959,7 +946,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
   const objectText = [parsedHeader.object, parsedHeader.address].filter(Boolean).join(', ')
 
   const applyMacro = (macro: any) => {
-    setCommentBody(macro.bodyText)
+    commentInputRef.current?.setValue(macro.bodyText)
     setCommentInternal(macro.internal)
     setCommentArticleType('note')
     if (macro.stateId) {
@@ -1211,8 +1198,15 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
         <TicketBusyBar busy={isBusy} label={busyLabel} />
       </div>
 
+      {/* Стороны меняются порядком, а не разметкой: колонки остаются на своих
+          местах в DOM, так что переписка по-прежнему идёт первой для клавиатуры
+          и чтения с экрана. На узком экране колонки и так лежат друг под другом,
+          поэтому порядок трогаем только с lg. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-4 gap-5">
-        <div className="lg:col-span-3 min-h-0 relative">
+        <div className={cn(
+          "lg:col-span-3 min-h-0 relative",
+          panelOnLeft ? "lg:order-2" : "lg:order-1"
+        )}>
           <div
             ref={ticketScrollRef}
             onScroll={updateScrollDownVisibility}
@@ -1341,7 +1335,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                           {titleError && <span className="text-xs text-destructive">{titleError}</span>}
                         </div>
                       ) : (
-                        // Карандаш проявляется при наведении на строку — чтобы он не
+                        // Карандаш проявляется при наведении на строку - чтобы он не
                         // мозолил глаза, но и не прятался от того, кто его ищет.
                         <div className="group/title flex items-start gap-2">
                           <h1
@@ -1829,18 +1823,13 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
               </div>
             </div>
 
-            <div className="relative">
-              <textarea
-                ref={commentTextareaRef}
-                value={commentBody}
-                onChange={event => setCommentBody(event.target.value)}
-                onPaste={handleCommentPaste}
-                placeholder="Напишите комментарий..."
-                spellCheck
-                className="min-h-32 w-full resize-y rounded-lg border border-border bg-muted/25 px-3 py-2 pr-9 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"
-              />
-              <AiAssistButton text={commentBody} onTextChange={setCommentBody} ticketContext={aiContext} />
-            </div>
+            <CommentInput
+              key={idNum}
+              ref={commentInputRef}
+              ticketId={idNum}
+              getAiContext={getAiContext}
+              onFilesPasted={files => void addComposerFiles(files)}
+            />
 
             {commentAttachments.length > 0 && (
               <div className="grid gap-2 sm:grid-cols-2">
@@ -1983,7 +1972,10 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.92 }}
                 transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                className="fixed bottom-6 left-[62px] z-[60] flex h-10 w-10 items-center justify-center rounded-full border border-primary/30 bg-card/95 text-primary shadow-xl shadow-black/20 backdrop-blur transition-colors hover:bg-primary hover:text-primary-foreground"
+                className={cn(
+                  "fixed bottom-6 z-[60] flex h-10 w-10 items-center justify-center rounded-full border border-primary/30 bg-card/95 text-primary shadow-xl shadow-black/20 backdrop-blur transition-colors hover:bg-primary hover:text-primary-foreground",
+                  scrollDownButtonPosition
+                )}
                 aria-label="Прокрутить вниз"
               >
                 <ArrowDown className="h-4 w-4" />
@@ -1992,7 +1984,10 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           </AnimatePresence>
         </div>
 
-        <div className="min-h-0 overflow-y-auto flex flex-col gap-4">
+        <div className={cn(
+          "min-h-0 overflow-y-auto flex flex-col gap-4",
+          panelOnLeft ? "lg:order-1" : "lg:order-2"
+        )}>
           <div className="bg-card rounded-2xl border border-border/55 p-4 shadow-sm flex flex-col gap-3.5">
             <div className="mb-1 flex items-center justify-between relative">
               <h2 className="text-xs font-bold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5">
@@ -2028,7 +2023,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                       <div key={key} className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <span className="block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-                          <span className="block truncate font-mono text-xs font-semibold text-foreground">{value || '—'}</span>
+                          <span className="block truncate font-mono text-xs font-semibold text-foreground">{value || '-'}</span>
                         </div>
                         <button
                           type="button"
@@ -2310,7 +2305,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 ) : (
                   <span className="text-xs font-semibold text-foreground flex items-center gap-1">
                     <Award className="h-3.5 w-3.5 text-yellow-500" />
-                    {ticket.score !== null && ticket.score !== undefined ? formatScore(ticket.score) : '—'}
+                    {ticket.score !== null && ticket.score !== undefined ? formatScore(ticket.score) : '-'}
                   </span>
                 )}
                 {scoreError && <span className="text-[10px] leading-tight text-destructive">{scoreError}</span>}
@@ -2319,7 +2314,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                 <span className="text-[10px] text-muted-foreground">Учётное время</span>
                 <span className="text-xs font-semibold text-foreground flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground/75" />
-                  {ticket.accountedTime !== null && ticket.accountedTime !== undefined ? `${ticket.accountedTime} мин` : '—'}
+                  {ticket.accountedTime !== null && ticket.accountedTime !== undefined ? `${ticket.accountedTime} мин` : '-'}
                 </span>
               </div>
             </div>
@@ -2372,7 +2367,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                   'text-xs font-semibold truncate text-right',
                   value ? (accent ?? 'text-foreground') : 'text-muted-foreground/30'
                 )}>
-                  {value ?? '—'}
+                  {value ?? '-'}
                 </span>
               </div>
             ))}
@@ -2437,11 +2432,11 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                     <div className="space-y-3">
                       <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                         <span className="text-muted-foreground">Группа обслуживания</span>
-                        <span className="font-medium text-foreground">{detailsData.organization.responsible_group || '—'}</span>
+                        <span className="font-medium text-foreground">{detailsData.organization.responsible_group || '-'}</span>
                       </div>
                       <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                         <span className="text-muted-foreground">Менеджер</span>
-                        <span className="font-medium text-foreground">{detailsData.organization.manager || '—'}</span>
+                        <span className="font-medium text-foreground">{detailsData.organization.manager || '-'}</span>
                       </div>
                       <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                         <span className="text-muted-foreground">Задолженность</span>
@@ -2454,7 +2449,7 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                         <span className="font-medium text-foreground tabular-nums">
                           {detailsData.organization.deposit_balance_minutes !== null && detailsData.organization.deposit_balance_minutes !== undefined
                             ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(detailsData.organization.deposit_balance_minutes)
-                            : '—'
+                            : '-'
                           }
                         </span>
                       </div>

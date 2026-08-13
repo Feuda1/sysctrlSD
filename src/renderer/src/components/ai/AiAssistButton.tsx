@@ -24,11 +24,17 @@ import {
 } from '@/store/aiAssist'
 import { Button } from '@/components/ui/button'
 import { withAiContext } from '@/lib/aiContext'
+import { useUIStore } from '@/store/ui'
 import { CustomCheckbox } from '@/components/ui/custom-controls'
 
 interface AiAssistButtonProps {
   /** Последние сообщения заявки: помогают не путать имена, термины и тон. */
-  ticketContext?: string
+  /**
+   * Выжимка из переписки - строкой или функцией, которая её посчитает. Функция
+   * нужна там, где выжимка стоит недёшево: считать её на каждую отрисовку ради
+   * кнопки, которую нажимают раз в несколько минут, незачем.
+   */
+  ticketContext?: string | (() => string)
   text: string
   onTextChange: (text: string) => void
 }
@@ -42,6 +48,7 @@ export function AiAssistButton({ text, onTextChange, ticketContext }: AiAssistBu
   const menuRef = useRef<HTMLDivElement>(null)
   const aiChangedRef = useRef(false)
 
+  const sidebarSide = useUIStore(s => s.sidebarSide)
   const store = useAiAssistStore()
   const allPresets = getAllPresets(store.customPresets)
   const activePreset = allPresets.find(p => p.id === store.activePresetId) ?? allPresets[0]
@@ -111,8 +118,10 @@ export function AiAssistButton({ text, onTextChange, ticketContext }: AiAssistBu
         type === 'correct'
           ? CORRECTION_PROMPT
           : (activePreset?.instruction ?? BUILT_IN_PRESETS[0].instruction)
-      const withContext = store.useTicketContext && ticketContext
-        ? withAiContext(prompt, ticketContext)
+      // Считаем выжимку только сейчас, в момент нажатия.
+      const context = typeof ticketContext === 'function' ? ticketContext() : ticketContext
+      const withContext = store.useTicketContext && context
+        ? withAiContext(prompt, context)
         : prompt
       const result = await callAiApi(withContext, text, store.apiKey, store.provider)
       if (result) {
@@ -226,7 +235,10 @@ export function AiAssistButton({ text, onTextChange, ticketContext }: AiAssistBu
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.15 }}
-            className="fixed bottom-4 right-4 z-[200] flex items-center gap-2 rounded-xl border border-destructive/30 bg-card px-3 py-2.5 text-xs text-destructive shadow-xl"
+            className={cn(
+              'fixed bottom-4 z-[200] flex items-center gap-2 rounded-xl border border-destructive/30 bg-card px-3 py-2.5 text-xs text-destructive shadow-xl',
+              sidebarSide === 'right' ? 'right-[72px]' : 'right-4'
+            )}
           >
             <Wand2 className="h-3.5 w-3.5 shrink-0" />
             <span>{error}</span>
@@ -319,14 +331,14 @@ function AiStylesModal({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
 
-        {/* Переписка заявки в помощь правке — с прямой оговоркой, куда она уходит. */}
+        {/* Переписка заявки в помощь правке - с прямой оговоркой, куда она уходит. */}
         <div className="border-b border-border/50 px-3 py-3">
           <CustomCheckbox checked={useTicketContext} onChange={setUseTicketContext}>
             Учитывать последние сообщения заявки
           </CustomCheckbox>
           <p className="mt-1 pl-6 text-[11px] leading-4 text-muted-foreground">
             Помогает не путать имена, названия и обращение на «вы». Вместе с черновиком
-            в сервис ИИ уходят три последних сообщения заявки — если это нежелательно, отключите.
+            в сервис ИИ уходят три последних сообщения заявки - если это нежелательно, отключите.
           </p>
         </div>
 
@@ -500,7 +512,7 @@ function PresetEditForm({
       <textarea
         value={instruction}
         onChange={e => onInstructionChange(e.target.value)}
-        placeholder="Инструкция для AI — опиши в свободной форме как переписывать текст..."
+        placeholder="Инструкция для AI - опиши в свободной форме как переписывать текст..."
         className="min-h-[72px] w-full resize-y rounded-lg border border-border bg-muted/20 px-2.5 py-2 text-xs leading-5 text-foreground outline-none placeholder:text-muted-foreground focus:border-violet-500/50 focus:bg-muted/30"
       />
       <div className="flex justify-end gap-2">
