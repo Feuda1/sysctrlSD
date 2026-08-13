@@ -11,8 +11,8 @@ const WRAPPER_BASE = 'https://clients.denvic.ru'
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
 
 
-// net.fetch() ignores the `session` option — that option belongs to
-// net.request() — so every clients request has always gone through the default
+// net.fetch() ignores the `session` option - that option belongs to
+// net.request() - so every clients request has always gone through the default
 // session, and that is where the login cookie lives. Pointing this helper at the
 // same session is what makes the cookie checks agree with reality.
 function wrapperSession() {
@@ -320,7 +320,7 @@ export function writeStored(data: StoredData): void {
   }
 }
 
-// A mere mention of /Account/Login is not enough to call a page the login page —
+// A mere mention of /Account/Login is not enough to call a page the login page -
 // the profile page links to account actions too, and that false positive used to
 // fail the login of perfectly fine accounts. Only a real login form counts.
 function isClientsLoginPage(html: string): boolean {
@@ -339,7 +339,7 @@ function clientsValidationMessage(html: string): string {
 // clients refuses a rejected account for a while after a burst of attempts, so
 // automatic re-logins must back off instead of hammering the form on every
 // request and keeping the account locked. A login the user asked for explicitly
-// always goes through — that is how they recover after fixing the password.
+// always goes through - that is how they recover after fixing the password.
 const LOGIN_RETRY_COOLDOWN = 60_000
 let lastLoginFailure: { at: number; message: string } | null = null
 
@@ -429,11 +429,11 @@ async function performLoginWrapper(email: string, password: string): Promise<App
 
   // Diagnostics only. The cookie store is written asynchronously and the auth
   // cookie is not always visible right after the response resolves, so a missing
-  // cookie here must never fail a login that otherwise works — whether the
+  // cookie here must never fail a login that otherwise works - whether the
   // profile page loads is the real answer.
   try {
     const inPartition = await ses.cookies.get({ url: WRAPPER_BASE })
-    // net.fetch() always uses the default session — the `session` option belongs
+    // net.fetch() always uses the default session - the `session` option belongs
     // to net.request(). So the login cookie may well be sitting there instead of
     // in the partition the app thinks it uses.
     const inDefault = await session.defaultSession.cookies.get({ url: WRAPPER_BASE })
@@ -476,7 +476,7 @@ async function performLoginWrapper(email: string, password: string): Promise<App
     })
     throw new Error(
       'Сессия не была создана: clients просит войти заново. ' +
-      'Повторите попытку; если ошибка остаётся — проверьте системные дату и время и доступ к clients.denvic.ru.'
+      'Повторите попытку; если ошибка остаётся - проверьте системные дату и время и доступ к clients.denvic.ru.'
     )
   }
 
@@ -557,7 +557,16 @@ async function cleanZammadFetch(url: string, options: any = {}) {
     Origin: 'https://zammad.denvic.ru',
     Referer: 'https://zammad.denvic.ru/'
   }
-  return net.fetch(url, { ...options, headers, session: ses } as any)
+  // Этим запросом проверяется вход при старте, и висел он без всякого срока: у
+  // медленного Zammad приложение так и оставалось на заставке. Пятнадцати секунд
+  // хватает здоровому серверу с запасом, а не дождавшись - лучше показать окно
+  // входа, чем держать человека перед логотипом.
+  return net.fetch(url, {
+    ...options,
+    headers,
+    session: ses,
+    signal: AbortSignal.timeout(15_000)
+  } as any)
 }
 
 export async function fetchZammadUser(token: string): Promise<AppUser | null> {

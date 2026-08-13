@@ -62,23 +62,102 @@ const CLIENTS_FILTER_IDS = [522, 540, 541, 1067]
 
 const activeSystemNotifications = new Set<any>()
 
+// Ни один запрос к clients не был ограничен по времени. Зависший ответ держал
+// вызов столько, сколько его держит сетевой стек - то есть минутами, - и всё это
+// время заявка стояла на загрузке. Лучше отдать то, что уже известно из Zammad,
+// и дополнить в фоне, чем ждать вслепую.
+const CLIENTS_PAGE_TIMEOUT_MS = 8000
+const CLIENTS_ASSET_TIMEOUT_MS = 5000
+
+export class ClientsTimeoutError extends Error {
+  constructor(url: string) {
+    super(`Страница clients не ответила вовремя: ${url}`)
+    this.name = 'ClientsTimeoutError'
+  }
+}
+
+/** net.fetch к clients с потолком по времени; сессия всегда одна и та же. */
+async function clientsFetch(url: string, timeoutMs = CLIENTS_PAGE_TIMEOUT_MS, options: any = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await net.fetch(url, { session: wrapperSession(), ...options, signal: controller.signal } as any)
+  } catch (err) {
+    if (controller.signal.aborted) throw new ClientsTimeoutError(url)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Куки раздела чистились перед каждым запросом к Zammad, чтобы чужая сессия не
+// подменяла авторизацию по токену. Смысл верный, но частота лишняя: личность
+// меняется только вместе с токеном. Чистим один раз на токен, а параллельные
+// вызовы ждут одну и ту же очистку, а не устраивают свою каждый.
+let zammadCookieReset: { auth: string; done: Promise<void> } | null = null
+
+function resetZammadCookiesOnce(ses: Electron.Session, auth: string): Promise<void> {
+  if (zammadCookieReset?.auth === auth) return zammadCookieReset.done
+  const done = ses.clearStorageData({ storages: ['cookies'] }).catch(err => {
+    logger.warn('Failed to clear zammad-api cookies:', err)
+    // Неудачная очистка не должна запомниться как выполненная.
+    if (zammadCookieReset?.auth === auth) zammadCookieReset = null
+  }).then(() => undefined)
+  zammadCookieReset = { auth, done }
+  return done
+}
+
+/**
+ * Замеряет шаг и пишет в лог, сколько он занял. Без таких отметок непонятно,
+ * кто именно держит открытие заявки: страница clients, сам Zammad, аватарки или
+ * поиск номера в списках clients. Пишем только заметное - от полусекунды.
+ */
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now()
+  let failed = false
+  try {
+    return await fn()
+  } catch (err) {
+    failed = true
+    throw err
+  } finally {
+    const ms = Date.now() - startedAt
+    if (ms >= 500 || failed) logger.info(`[замер] ${label}: ${ms} мс${failed ? ' (с ошибкой)' : ''}`)
+  }
+}
+
+/**
+ * Потолок ожидания для Zammad.
+ *
+ * Срока не было вовсе, и это оказалось опаснее, чем кажется. Во-первых, повисший
+ * запрос держал экран сколько угодно. Во-вторых - и это хуже - теперь запросы
+ * объединяются: все ждут один общий. Без срока один такой зависший запрос
+ * означал бы, что заявка не откроется уже никогда, даже когда сервер оживёт.
+ * Минута - это заведомо больше любого здорового ответа.
+ */
+const ZAMMAD_TIMEOUT_MS = 60_000
+
 async function zammadFetch(url: string | URL, options: any = {}) {
   const ses = session.fromPartition('zammad-api')
-  try {
-    await ses.clearStorageData({ storages: ['cookies'] })
-  } catch (err) {
-    logger.warn('Failed to clear zammad-api cookies:', err)
+  const { timeoutMs, ...rest } = options
+  const auth = String(rest?.headers?.Authorization ?? '')
+  if (auth) {
+    await resetZammadCookiesOnce(ses, auth)
   }
   const headers = {
-    ...options.headers,
+    ...rest.headers,
     Origin: 'https://zammad.denvic.ru',
     Referer: 'https://zammad.denvic.ru/'
   }
-  const opt = {
-    ...options,
+  const opt: any = {
+    ...rest,
     headers,
     session: ses
   }
+  // `timeoutMs: 0` оставляет запрос без срока - для выгрузки файлов, где долгая
+  // отправка это норма, а не признак беды.
+  const ms = timeoutMs === undefined ? ZAMMAD_TIMEOUT_MS : timeoutMs
+  if (ms > 0) opt.signal = AbortSignal.timeout(ms)
   return net.fetch(url.toString(), opt)
 }
 
@@ -734,6 +813,8 @@ const meta: Meta = { states: {}, priorities: {}, groups: {}, ticketTypes: {}, ii
 let metaLoaded = false
 let cachedUserId: number | null = null
 let clientsIndexCache: { expiresAt: number; index: ClientsTicketIndex } | null = null
+/** Сборка индекса, которая уже идёт: остальные ждут её, а не начинают свою. */
+let clientsIndexInFlight: Promise<ClientsTicketIndex> | null = null
 interface ActiveTicketsCache {
   userId: number
   tickets: any[]
@@ -741,14 +822,19 @@ interface ActiveTicketsCache {
   timestamp: number
 }
 let activeTicketsCache: ActiveTicketsCache | null = null
-const ACTIVE_TICKETS_TTL = 30000
+/** Запрос, который уже идёт: остальные спрашивающие ждут его, а не свой. */
+let activeTicketsInFlight: { userId: number; promise: Promise<{ tickets: any[]; assets: any }> } | null = null
+// Минута вместо тридцати секунд: этот кэш стоит перед самым дорогим поиском, а
+// свежесть ему обеспечивает не срок, а события об изменениях - они сбрасывают
+// кэш сразу, как только что-то действительно поменялось.
+const ACTIVE_TICKETS_TTL = 60000
 const clientsAvatarCache = new Map<string, string | null>()
 
 // Turns an HTTP failure into a short, human message. Gateway timeouts and HTML
 // error pages (nginx 502/503/504) are summarised instead of dumped into the UI.
 function describeHttpError(status: number, text: string, fallback: string): string {
   if (status === 502 || status === 503 || status === 504) {
-    return `Сервер не ответил вовремя (${status}). Возможно, изменения не сохранились — обновите заявку и при необходимости повторите.`
+    return `Сервер не ответил вовремя (${status}). Возможно, изменения не сохранились - обновите заявку и при необходимости повторите.`
   }
   if (status === 401 || status === 403) {
     return `Нет доступа (${status}). Проверьте Zammad API ключ в настройках.`
@@ -756,7 +842,7 @@ function describeHttpError(status: number, text: string, fallback: string): stri
   // The server rejects the body before reading it; the raw "413" tells the user
   // nothing, and the file is always the reason.
   if (status === 413) {
-    return 'Вложение слишком большое — сервер не принимает файл такого размера. Отправьте файл меньше или ссылкой.'
+    return 'Вложение слишком большое - сервер не принимает файл такого размера. Отправьте файл меньше или ссылкой.'
   }
   const trimmed = (text || '').trim()
   let detail = ''
@@ -796,9 +882,10 @@ function fetchTicketHtml(ticketId: number): Promise<string> {
   if (!promise) {
     promise = (async () => {
       try {
-        const detailResp = await net.fetch(`${WRAPPER_BASE}/Tickets/Details/${ticketId}`, {
-          session: wrapperSession()
-        } as any)
+        const detailResp = await timed(
+          `clients: страница заявки ${ticketId}`,
+          () => clientsFetch(`${WRAPPER_BASE}/Tickets/Details/${ticketId}`)
+        )
         if (!detailResp.ok) {
           throw new Error(`Ошибка загрузки деталей заявки: ${detailResp.status}`)
         }
@@ -859,12 +946,22 @@ const ORG_LIST_CACHE_TTL = 300000
 const ORG_MEMBERS_CACHE_TTL = 300000
 const ORG_TICKETS_CACHE_TTL = 120000
 
-function clearTicketCaches(ticketId?: number): void {
+/**
+ * Сбрасывает только списки. Появление чужой заявки меняет перечень, но ничего не
+ * меняет в той заявке, которую человек сейчас читает: раньше вместе со списком
+ * выбрасывалась и её страница clients, и открытая заявка перезагружала всё
+ * заново каждые несколько секунд - на активной очереди практически постоянно.
+ */
+function clearListCaches(): void {
   activeTicketsCache = null
   ticketListCache.clear()
+  orgTicketsCache.clear()
+}
+
+function clearTicketCaches(ticketId?: number): void {
+  clearListCaches()
   ticketHtmlCache.clear()
   ticketHtmlPromises.clear()
-  orgTicketsCache.clear()
   if (ticketId) {
     ticketDetailsCache.delete(ticketId)
     ticketArticlesCache.delete(ticketId)
@@ -907,7 +1004,7 @@ function isFallbackUserName(name?: string): boolean {
   return value.includes('@') || /^[a-z][a-z0-9._-]*$/i.test(value)
 }
 
-/** Свежее состояние заявки со стороны clients — то, что видит человек в вебе. */
+/** Свежее состояние заявки со стороны clients - то, что видит человек в вебе. */
 interface ClientsTicketState {
   stateId: number | null
   stateName: string
@@ -920,14 +1017,14 @@ interface ClientsTicketIndex {
   byZammadNumber: Map<string, string>
   byClientNumber: Map<string, { zammadId?: string; zammadNumber?: string }>
   /**
-   * Состояния по id заявки. Поиск Zammad живёт индексом и отстаёт — на больном
-   * сервере на часы, — а clients читает базу напрямую и отвечает за секунду.
+   * Состояния по id заявки. Поиск Zammad живёт индексом и отстаёт - на больном
+   * сервере на часы, - а clients читает базу напрямую и отвечает за секунду.
    */
   freshById: Map<string, ClientsTicketState>
 }
 
-// net.fetch() ignores the `session` option — that option belongs to
-// net.request() — so every clients request has always gone through the default
+// net.fetch() ignores the `session` option - that option belongs to
+// net.request() - so every clients request has always gone through the default
 // session, and that is where the login cookie lives. Pointing this helper at the
 // same session is what makes the cookie checks agree with reality.
 function wrapperSession() {
@@ -1342,7 +1439,7 @@ async function fetchClientsAgentNames(): Promise<Map<number, string>> {
   return clientsAgentNamesCache?.names ?? names
 }
 
-// Only names that degraded to a login are replaced — a real name in Zammad
+// Only names that degraded to a login are replaced - a real name in Zammad
 // always wins.
 async function applyClientsAgentNames(): Promise<void> {
   const needsName = Object.keys(meta.users)
@@ -1479,7 +1576,7 @@ function registerUsersFromAssets(assets: any): void {
 
 // One person can have more than one live account in Zammad, and both would show
 // up in the owner picker as the same name with nothing to choose between them.
-// The accounts are kept — tickets do hang on both — but the duplicates get their
+// The accounts are kept - tickets do hang on both - but the duplicates get their
 // login appended so it is clear which is which.
 function dedupeAgentNames(agents: { id: number; name: string }[]): { id: number; name: string }[] {
   const byName = new Map<string, { id: number; name: string }[]>()
@@ -1620,7 +1717,7 @@ async function fetchClientsAvatarDataUrl(url: string): Promise<string | null> {
   }
 
   try {
-    const resp = await net.fetch(avatarUrl, { session: wrapperSession() } as any)
+    const resp = await clientsFetch(avatarUrl, CLIENTS_ASSET_TIMEOUT_MS)
     if (!resp.ok) {
       clientsAvatarCache.set(avatarUrl, null)
       return null
@@ -1667,7 +1764,12 @@ function normalizeZammadTicket(raw: any): Ticket {
       meta.usersLoaded[ownerId] = !isFallbackUserName(meta.users[ownerId])
     }
   }
-  const ownerName = ownerId && meta.users[ownerId] ? meta.users[ownerId] : String(raw.owner ?? '')
+  // Пользователь 1 - служебная учётка Zammad, ею помечены заявки, которые ни на
+  // кого не назначены. Её имя в списке читается как настоящий ответственный,
+  // поэтому оставляем имя пустым - таблица покажет прочерк.
+  const ownerName = ownerId === 1
+    ? ''
+    : (ownerId && meta.users[ownerId] ? meta.users[ownerId] : String(raw.owner ?? ''))
 
   const orgId = parseInt(String(raw.organization_id ?? '0'), 10) || null
   const orgName = String(raw.organization ?? '').replace(/\([^)]+\)/g, '').trim()
@@ -1677,7 +1779,7 @@ function normalizeZammadTicket(raw: any): Ticket {
   const tags = getTicketTags(raw)
 
   const pendingTime = raw.pending_time ? String(raw.pending_time) : null
-  // clients awards halves ("01.5"), so parseInt turned 1,5 балла into 1 — the
+  // clients awards halves ("01.5"), so parseInt turned 1,5 балла into 1 - the
   // list looked like the change had not applied.
   const rawScore = raw.score !== null && raw.score !== undefined && raw.score !== '' ? parseFloat(String(raw.score)) : null
   const score = rawScore !== null && Number.isFinite(rawScore) ? rawScore : null
@@ -1763,7 +1865,7 @@ function addClientsTicketToIndex(index: ClientsTicketIndex, raw: any): void {
   const clientNumber = pickClientsNumber(raw)
   if (!clientNumber) return
 
-  // Номер заявки в clients — это и есть её id в Zammad, так что состояние
+  // Номер заявки в clients - это и есть её id в Zammad, так что состояние
   // ложится прямо на строку списка без всякого сопоставления.
   const stateName = String(raw.State ?? raw.state ?? '').trim()
   if (stateName) {
@@ -1790,6 +1892,20 @@ async function fetchClientsTicketIndex(): Promise<ClientsTicketIndex> {
   const cached = clientsIndexCache
   if (cached && cached.expiresAt > Date.now()) return cached.index
 
+  // Индекс собирается четырьмя запросами к clients. Пока сборка идёт, кэша ещё
+  // нет, и без этой развилки каждый спрашивающий начинал свою - вчетверо больше
+  // запросов на ровном месте.
+  if (clientsIndexInFlight) return clientsIndexInFlight
+  const build = buildClientsTicketIndex()
+  clientsIndexInFlight = build
+  try {
+    return await build
+  } finally {
+    if (clientsIndexInFlight === build) clientsIndexInFlight = null
+  }
+}
+
+async function buildClientsTicketIndex(): Promise<ClientsTicketIndex> {
   const index: ClientsTicketIndex = {
     byZammadId: new Map(),
     byZammadNumber: new Map(),
@@ -1813,7 +1929,7 @@ async function fetchClientsTicketIndex(): Promise<ClientsTicketIndex> {
         url.searchParams.set('page', '1')
         url.searchParams.set('columnSort', 'updatedAt')
         url.searchParams.set('sortingDirectionAsc', 'false')
-        const resp = await net.fetch(url.toString(), { session: ses } as any)
+        const resp = await clientsFetch(url.toString())
         if (!resp.ok) return
         const payload = await resp.json()
         getClientsTicketsFromPayload(payload).forEach(ticket => addClientsTicketToIndex(index, ticket))
@@ -1826,7 +1942,7 @@ async function fetchClientsTicketIndex(): Promise<ClientsTicketIndex> {
   }
 
   // Полминуты: раньше индекс жил пять минут, потому что нужен был только для
-  // номеров, а теперь он же держит состояния — они должны быть свежими. Четыре
+  // номеров, а теперь он же держит состояния - они должны быть свежими. Четыре
   // запроса к clients укладываются в полторы секунды, это дешевле, чем ждать
   // поисковый индекс Zammad.
   clientsIndexCache = { expiresAt: Date.now() + 30_000, index }
@@ -1882,6 +1998,13 @@ function getTicketTags(raw: any): TicketTagItem[] {
 
 
 
+/**
+ * Самый дорогой запрос, который приложение вообще делает: поисковый индекс плюс
+ * подъём 250 заявок со всеми связями. Просят его сразу с нескольких сторон -
+ * счётчики по состояниям, список «моих заявок», каждое окно приложения. Пока
+ * ответа нет, нет и кэша, поэтому раньше каждый спрашивающий поднимал свой
+ * такой же запрос. Теперь все ждут один.
+ */
 async function getActiveTickets(myUserId: number, token: string): Promise<{ tickets: any[]; assets: any }> {
   const now = Date.now()
   if (activeTicketsCache && activeTicketsCache.userId === myUserId && (now - activeTicketsCache.timestamp) < ACTIVE_TICKETS_TTL) {
@@ -1891,6 +2014,19 @@ async function getActiveTickets(myUserId: number, token: string): Promise<{ tick
     }
   }
 
+  const inFlight = activeTicketsInFlight
+  if (inFlight && inFlight.userId === myUserId) return inFlight.promise
+
+  const promise = executeGetActiveTickets(myUserId, token, now)
+  activeTicketsInFlight = { userId: myUserId, promise }
+  try {
+    return await promise
+  } finally {
+    if (activeTicketsInFlight?.promise === promise) activeTicketsInFlight = null
+  }
+}
+
+async function executeGetActiveTickets(myUserId: number, token: string, now: number): Promise<{ tickets: any[]; assets: any }> {
   const h = zHeaders(token)
   const query = `owner_id:${myUserId} AND NOT state:(closed OR merged OR removed)`
   const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
@@ -1898,7 +2034,7 @@ async function getActiveTickets(myUserId: number, token: string): Promise<{ tick
   url.searchParams.set('per_page', '250')
   url.searchParams.set('expand', 'true')
 
-  const resp = await zammadFetch(url.toString(), { headers: h })
+  const resp = await timed('zammad: мои активные заявки', () => zammadFetch(url.toString(), { headers: h }))
   if (!resp.ok) {
     if (activeTicketsCache && activeTicketsCache.userId === myUserId) {
       return {
@@ -2823,7 +2959,7 @@ async function fetchCallRecording(url: string, retryOnFail = true): Promise<{ da
   if (!resp.ok) {
     try { await resp.text() } catch {} // consume body to free the connection
     if (retryOnFail) {
-      logger.warn('Recording fetch failed with status', resp.status, '— forcing session refresh and retrying')
+      logger.warn('Recording fetch failed with status', resp.status, '- forcing session refresh and retrying')
       const stored = readStored()
       if (stored.savedEmail && stored.savedPassword) {
         try { await loginWrapper(stored.savedEmail, stored.savedPassword) } catch (e) { logger.warn('Session refresh for recording failed:', e) }
@@ -2858,23 +2994,34 @@ async function fetchCallRecording(url: string, retryOnFail = true): Promise<{ da
 }
 
 async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ticket; customer: any; organization: any }> {
-  let clientsMeta: ClientsTicketDetailsMeta = {}
-  try {
-    const html = await fetchTicketHtml(ticketId)
-    clientsMeta = parseClientsTicketDetails(html)
-  } catch (err) {
+  // Два независимых источника - запускаем сразу оба. Раньше запрос к Zammad
+  // даже не начинался, пока не ответит clients, хотя всё главное в заявке
+  // приходит именно из Zammad.
+  const htmlPromise = fetchTicketHtml(ticketId).catch(err => {
     logger.warn('Failed to read clients ticket details:', err)
-  }
+    return ''
+  })
 
   const token = getToken()
   const h = zHeaders(token)
   const url = `${ZAMMAD_BASE}/api/v1/tickets/${ticketId}?expand=true`
-  const resp = await zammadFetch(url, { headers: h })
+  const resp = await timed(`zammad: заявка ${ticketId}`, () => zammadFetch(url, { headers: h }))
   if (!resp.ok) {
+    await htmlPromise
     throw new Error(`Ошибка загрузки деталей заявки: ${resp.status}`)
   }
   const raw = await resp.json()
   registerUsersFromAssets(raw?.assets)
+
+  const html = await htmlPromise
+  let clientsMeta: ClientsTicketDetailsMeta = {}
+  if (html) {
+    try {
+      clientsMeta = parseClientsTicketDetails(html)
+    } catch (err) {
+      logger.warn('Failed to parse clients ticket details:', err)
+    }
+  }
 
   const customerId = raw.customer_id
   let customer: any = null
@@ -2944,7 +3091,7 @@ async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ti
     (normalized as any).subTickets = clientsMeta.subTickets
   }
   // Points: the raw clients value ("01.0") plus who may change it, so the sidebar
-  // can offer the same choice clients offers — and only to the same people.
+  // can offer the same choice clients offers - and only to the same people.
   ;(normalized as any).scoreOptions = clientsMeta.scoreOptions ?? []
   ;(normalized as any).scoreValue = clientsMeta.scoreValue ?? null
   ;(normalized as any).canEditScore = clientsMeta.canEditScore === true
@@ -2958,7 +3105,7 @@ async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ti
   }
   if (!normalized.clientNumber) {
     try {
-      const idx = await fetchClientsTicketIndex()
+      const idx = await timed('clients: список заявок ради номера', () => fetchClientsTicketIndex())
       normalized.clientNumber =
         idx.byZammadId.get(String(ticketId)) ||
         idx.byZammadNumber.get(normalized.number) ||
@@ -2966,6 +3113,34 @@ async function executeFetchTicketDetails(ticketId: number): Promise<{ ticket: Ti
     } catch {}
   }
   return { ticket: normalized, customer, organization }
+}
+
+/**
+ * Обновление, которое уже идёт по этой заявке. Без такой отметки открытая
+ * заявка убивала сервер сама: страница опрашивает её раз в пять секунд, каждый
+ * опрос заставал кэш подостывшим и запускал фоновое обновление, не глядя на то,
+ * идёт ли предыдущее. Пока Zammad отвечал быстро, это было незаметно. Когда
+ * ответ стал занимать минуту, с одной вкладки одновременно висело два-три
+ * десятка тяжёлых запросов - и чем медленнее отвечал сервер, тем больше их
+ * набиралось. Теперь обновление всегда одно, а остальные ждут его.
+ */
+const ticketDetailsInFlight = new Map<number, Promise<{ ticket: Ticket; customer: any; organization: any }>>()
+const ticketArticlesInFlight = new Map<number, Promise<any[]>>()
+
+function refreshTicketDetails(ticketId: number): Promise<{ ticket: Ticket; customer: any; organization: any }> {
+  const running = ticketDetailsInFlight.get(ticketId)
+  if (running) return running
+
+  const promise = executeFetchTicketDetails(ticketId)
+    .then(data => {
+      ticketDetailsCache.set(ticketId, { data, timestamp: Date.now() })
+      return data
+    })
+    .finally(() => {
+      ticketDetailsInFlight.delete(ticketId)
+    })
+  ticketDetailsInFlight.set(ticketId, promise)
+  return promise
 }
 
 async function fetchTicketDetails(ticketId: number): Promise<{ ticket: Ticket; customer: any; organization: any }> {
@@ -2976,27 +3151,34 @@ async function fetchTicketDetails(ticketId: number): Promise<{ ticket: Ticket; c
     if (age < 5000) {
       return cached.data
     } else if (age < DETAILS_CACHE_TTL) {
-      executeFetchTicketDetails(ticketId).then(data => {
-        ticketDetailsCache.set(ticketId, { data, timestamp: Date.now() })
-        notifyFrontend('tickets:details-updated', ticketId)
-      }).catch(() => {})
+      // Отдаём то, что есть, и подтягиваем свежее в фоне - но ровно одним запросом.
+      const wasRunning = ticketDetailsInFlight.has(ticketId)
+      const refresh = refreshTicketDetails(ticketId)
+      if (!wasRunning) {
+        refresh.then(() => notifyFrontend('tickets:details-updated', ticketId)).catch(() => {})
+      }
       return cached.data
     }
   }
-  const data = await executeFetchTicketDetails(ticketId)
-  ticketDetailsCache.set(ticketId, { data, timestamp: Date.now() })
-  return data
+  return refreshTicketDetails(ticketId)
 }
 
 async function executeFetchTicketArticles(ticketId: number): Promise<any[]> {
-  let detailsHtml = ''
-  try {
-    detailsHtml = await fetchTicketHtml(ticketId)
-  } catch (err) {
+  // Страница clients и сами комментарии из Zammad не зависят друг от друга,
+  // поэтому идут одновременно: страница нужна только ради записей звонков,
+  // аватарок и стороны автора.
+  const htmlPromise = fetchTicketHtml(ticketId).catch(err => {
     logger.warn(err)
-  }
+    return ''
+  })
+  const articlesPromise = timed(`zammad: комментарии ${ticketId}`, () => zammadFetch(
+    `${ZAMMAD_BASE}/api/v1/ticket_articles/by_ticket/${ticketId}?expand=true`,
+    { headers: zHeaders(getToken()) }
+  ))
 
+  const detailsHtml = await htmlPromise
   const articleMeta = new Map<number, ClientsArticleMeta>()
+  const avatarUrlByArticle = new Map<number, string>()
   let topAudioMatchId: string | null = null
   if (detailsHtml) {
     const decodedHtml = decodeHtml(detailsHtml)
@@ -3038,18 +3220,29 @@ async function executeFetchTicketArticles(ticketId: number): Promise<any[]> {
       }
       const avatarUrl = avatarMatch?.[1] ?? avatarMatch?.[2]
       if (avatarUrl) {
-        meta.avatarDataUrl = await fetchClientsAvatarDataUrl(avatarUrl)
+        avatarUrlByArticle.set(articleId, avatarUrl)
       }
       if (Object.keys(meta).length > 0) {
         articleMeta.set(articleId, meta)
       }
     }
+
+    // Аватарки грузились по одной внутри разбора: в длинной переписке это
+    // десятки запросов подряд, и каждый следующий ждал предыдущего. Уникальные
+    // адреса - и все разом.
+    const uniqueAvatarUrls = Array.from(new Set(avatarUrlByArticle.values()))
+    const avatarByUrl = new Map<string, string | null>()
+    await timed(`clients: аватарки (${uniqueAvatarUrls.length} шт.)`, () => Promise.all(uniqueAvatarUrls.map(async url => {
+      avatarByUrl.set(url, await fetchClientsAvatarDataUrl(url))
+    })))
+    for (const [articleId, url] of avatarUrlByArticle) {
+      const dataUrl = avatarByUrl.get(url) ?? null
+      const existing = articleMeta.get(articleId) ?? {}
+      articleMeta.set(articleId, { ...existing, avatarDataUrl: dataUrl })
+    }
   }
 
-  const token = getToken()
-  const h = zHeaders(token)
-  const url = `${ZAMMAD_BASE}/api/v1/ticket_articles/by_ticket/${ticketId}?expand=true`
-  const resp = await zammadFetch(url, { headers: h })
+  const resp = await articlesPromise
   if (!resp.ok) {
     throw new Error(`Ошибка загрузки комментариев: ${resp.status}`)
   }
@@ -3063,7 +3256,10 @@ async function executeFetchTicketArticles(ticketId: number): Promise<any[]> {
   const creatorIds = Array.from(new Set(articles
     .map((art: any) => parseInt(String(art.created_by_id || art.user_id || '0'), 10))
     .filter((id: number) => id > 0)))
-  await Promise.all(creatorIds.map(id => fetchUserAvatarDataUrl(id)))
+  await timed(
+    `zammad: аватарки авторов (${creatorIds.length} шт.)`,
+    () => Promise.all(creatorIds.map(id => fetchUserAvatarDataUrl(id)))
+  )
 
   return articles.map((art: any, artIndex: number) => {
     const creatorId = art.created_by_id || art.user_id
@@ -3110,6 +3306,55 @@ async function executeFetchTicketArticles(ticketId: number): Promise<any[]> {
   })
 }
 
+/**
+ * Комментарии заявки только из Zammad - без страницы clients и без аватарок.
+ *
+ * Опросу уведомлений от статьи нужны три вещи: сколько их, кто автор последней и
+ * первые сто символов текста. Полная загрузка ради этого тянула за собой
+ * страницу clients и по запросу на каждую аватарку - на чужую заявку, которую
+ * никто не открывал. Именно это забивало соединения к clients и заставляло
+ * открытую заявку ждать своей очереди.
+ */
+async function fetchZammadArticlesLite(ticketId: number): Promise<any[]> {
+  const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/ticket_articles/by_ticket/${ticketId}?expand=true`, {
+    headers: zHeaders(getToken())
+  })
+  if (!resp.ok) {
+    throw new Error(`Ошибка загрузки комментариев: ${resp.status}`)
+  }
+  const data = await resp.json()
+  let articles = Array.isArray(data) ? data : []
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    registerUsersFromAssets(data.assets)
+    articles = Array.isArray(data.articles) ? data.articles : []
+  }
+  return articles.map((art: any) => {
+    const creatorId = art.created_by_id || art.user_id
+    return {
+      id: art.id,
+      body: art.body ?? '',
+      created_by_id: creatorId,
+      creatorName: creatorId && meta.users[creatorId] ? meta.users[creatorId] : (art.from ?? 'Неизвестно')
+    }
+  })
+}
+
+function refreshTicketArticles(ticketId: number): Promise<any[]> {
+  const running = ticketArticlesInFlight.get(ticketId)
+  if (running) return running
+
+  const promise = executeFetchTicketArticles(ticketId)
+    .then(data => {
+      ticketArticlesCache.set(ticketId, { data, timestamp: Date.now() })
+      return data
+    })
+    .finally(() => {
+      ticketArticlesInFlight.delete(ticketId)
+    })
+  ticketArticlesInFlight.set(ticketId, promise)
+  return promise
+}
+
 async function fetchTicketArticles(ticketId: number): Promise<any[]> {
   const cached = ticketArticlesCache.get(ticketId)
   const now = Date.now()
@@ -3118,16 +3363,15 @@ async function fetchTicketArticles(ticketId: number): Promise<any[]> {
     if (age < 5000) {
       return cached.data
     } else if (age < ARTICLES_CACHE_TTL) {
-      executeFetchTicketArticles(ticketId).then(data => {
-        ticketArticlesCache.set(ticketId, { data, timestamp: Date.now() })
-        notifyFrontend('tickets:articles-updated', ticketId)
-      }).catch(() => {})
+      const wasRunning = ticketArticlesInFlight.has(ticketId)
+      const refresh = refreshTicketArticles(ticketId)
+      if (!wasRunning) {
+        refresh.then(() => notifyFrontend('tickets:articles-updated', ticketId)).catch(() => {})
+      }
       return cached.data
     }
   }
-  const data = await executeFetchTicketArticles(ticketId)
-  ticketArticlesCache.set(ticketId, { data, timestamp: Date.now() })
-  return data
+  return refreshTicketArticles(ticketId)
 }
 
 // Re-exported under explicit names for the ticket export, which needs the same
@@ -3472,7 +3716,7 @@ async function addTicketComment(params: AddTicketCommentParams): Promise<{ ok: t
 }
 
 // The right to award points is a clients rule, and Zammad would happily accept
-// the change from anyone — so it is re-checked against the live clients page
+// the change from anyone - so it is re-checked against the live clients page
 // right before writing, not taken on the renderer's word.
 async function setTicketScore(ticketId: number, score: string, ignoreClientsRight = false): Promise<{ ok: true }> {
   const html = await fetchTicketHtml(ticketId)
@@ -3514,7 +3758,7 @@ async function setTicketTitle(ticketId: number, title: string): Promise<{ ok: tr
     throw new Error('Заголовок не может быть пустым')
   }
   // Zammad хранит заголовок строкой без ограничения, но в списках он обрезается,
-  // а перенос строки ломает вёрстку — поэтому в одну строку и в разумный предел.
+  // а перенос строки ломает вёрстку - поэтому в одну строку и в разумный предел.
   const normalized = trimmed.replace(/\s+/g, ' ').slice(0, 250)
 
   const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/${ticketId}`, {
@@ -3540,21 +3784,19 @@ async function setTicketTitle(ticketId: number, title: string): Promise<{ ok: tr
 // Организация возвращается вместе с пользователем не для красоты: смена клиента
 // заявки может перевесить его в другую организацию, и без этого не видно, у кого
 // именно она отбирается.
-// Чек-лист живёт в clients, отдельной страницей-фрагментом, и ключ у него —
+// Чек-лист живёт в clients, отдельной страницей-фрагментом, и ключ у него -
 // id заявки в Zammad, тот же, что и у остальных её экранов.
 async function fetchTicketChecklist(ticketId: number): Promise<{
   groups: ChecklistGroup[]
   templates: ChecklistTemplate[]
 }> {
-  const resp = await net.fetch(`${WRAPPER_BASE}/CheckList?id=${ticketId}`, {
-    session: wrapperSession()
-  } as any)
+  const resp = await clientsFetch(`${WRAPPER_BASE}/CheckList?id=${ticketId}`)
   if (!resp.ok) {
     throw new Error(describeHttpError(resp.status, '', 'Не удалось загрузить чек-лист'))
   }
   const html = await resp.text()
   if (isClientsLoginPage(html)) {
-    throw new Error('Сессия clients истекла — войдите заново')
+    throw new Error('Сессия clients истекла - войдите заново')
   }
 
   // Шаблоны перечислены в меню самой заявки; её HTML и так закэширован.
@@ -3667,7 +3909,7 @@ async function deleteChecklistItem(itemId: number): Promise<{ ok: true }> {
 }
 
 /**
- * Массовые действия clients не умеет — только по одному пункту. Перебор идёт
+ * Массовые действия clients не умеет - только по одному пункту. Перебор идёт
  * здесь, а не в интерфейсе: иначе на каждый пункт был бы отдельный переход
  * через IPC, и половина чек-листа могла остаться необработанной незаметно.
  */
@@ -3705,7 +3947,7 @@ async function searchUsers(query: string): Promise<UserSearchResult[]> {
   const url = new URL(`${ZAMMAD_BASE}/api/v1/users/search`)
   url.searchParams.set('query', query || '*')
   url.searchParams.set('per_page', '15')
-  // expand отдаёт название организации строкой — иначе пришлось бы тянуть её
+  // expand отдаёт название организации строкой - иначе пришлось бы тянуть её
   // отдельным запросом на каждого найденного.
   url.searchParams.set('expand', 'true')
   const resp = await zammadFetch(url.toString(), { headers: zHeaders(token) })
@@ -4093,11 +4335,11 @@ export function setupTicketsIpc(): void {
   })
 
   ipcMain.handle('tickets:getDetails', async (_event, ticketId: number) => {
-    return fetchTicketDetails(ticketId)
+    return timed(`ИТОГО детали заявки ${ticketId}`, () => fetchTicketDetails(ticketId))
   })
 
   ipcMain.handle('tickets:getArticles', async (_event, ticketId: number) => {
-    return fetchTicketArticles(ticketId)
+    return timed(`ИТОГО комментарии заявки ${ticketId}`, () => fetchTicketArticles(ticketId))
   })
 
   ipcMain.handle('tickets:addComment', async (_event, params: AddTicketCommentParams) => {
@@ -4271,7 +4513,7 @@ function wait(ms: number): Promise<void> {
 // the .AspNetCore.Identity.Application cookie, so clients answers every create
 // with a 302 to /Account/Login and nothing is ever saved. net.fetch() carries the
 // session cookies (it is what the login itself uses), and the redirect it follows
-// lands on /Tickets/Details/<id> — the id of the ticket just created.
+// lands on /Tickets/Details/<id> - the id of the ticket just created.
 async function postClientsForm(url: string, body: string, referer: string): Promise<ClientsFormResponse> {
   const response = await net.fetch(url, {
     method: 'POST',
@@ -4343,7 +4585,7 @@ async function loadClientsPage(url: string, what: string, expected: RegExp): Pro
   if (!expected.test(html)) {
     throw new Error(isClientsLoginPage(html)
       ? 'Сессия clients истекла. Выполните вход в приложение заново.'
-      : `Страница ${what} на clients вернулась в неожиданном виде — создание отменено.`)
+      : `Страница ${what} на clients вернулась в неожиданном виде - создание отменено.`)
   }
 
   markClientsSessionAlive()
@@ -4380,11 +4622,11 @@ function ticketIdFromJsonPayload(payload: any, depth = 0): number | null {
 // proof that the page we loaded is the form and not a login page served with 200.
 
 
-// A re-rendered create form means nothing was saved — its ticket links belong to
+// A re-rendered create form means nothing was saved - its ticket links belong to
 // other tickets and must never be mistaken for the new one.
 
-// Loads the create form, posts it, and — if clients bounced the request to the
-// login page — logs in again and replays it. A login redirect means the POST was
+// Loads the create form, posts it, and - if clients bounced the request to the
+// login page - logs in again and replays it. A login redirect means the POST was
 // never processed, so the replay cannot produce a duplicate ticket.
 async function submitClientsCreateForm(opts: {
   createPageUrl: string
@@ -4454,7 +4696,7 @@ function ticketIdFromHtml(html: string, excludeIds: number[]): number | null {
 
 
 // Reads the parent's children table again and returns the row that was not there
-// before the POST — the most direct proof of which subtask was created.
+// before the POST - the most direct proof of which subtask was created.
 async function findNewChildTicketId(parentTicketId: number, title: string, knownChildIds: number[]): Promise<number | null> {
   const wanted = title.trim().toLowerCase()
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -4481,7 +4723,7 @@ async function findNewChildTicketId(parentTicketId: number, title: string, known
 
 // Last resort when the wrapper tells us nothing: find the ticket we just created
 // in Zammad by title. The customer ticket list is served from the database, so it
-// is checked first — the search index can lag a few seconds behind a new ticket.
+// is checked first - the search index can lag a few seconds behind a new ticket.
 async function findRecentlyCreatedTicketId(opts: {
   title: string
   customerId?: number | null
@@ -4587,7 +4829,7 @@ async function toZammadTicketId(rawId: number, title: string, since: number): Pr
       const createdAt = Date.parse(String(raw?.created_at ?? ''))
       const fresh = Number.isFinite(createdAt) && createdAt >= since - 5 * 60_000
       if (sameTitle || fresh) return rawId
-      logger.info(`Заявка ${rawId} в Zammad не совпадает с созданной — трактую номер как внутренний номер clients`)
+      logger.info(`Заявка ${rawId} в Zammad не совпадает с созданной - трактую номер как внутренний номер clients`)
     }
   } catch (err) {
     logger.warn('Не удалось проверить id созданной заявки в Zammad:', err)
@@ -4630,7 +4872,7 @@ async function resolveCreatedTicketId(opts: {
     try {
       addCandidate(ticketIdFromJsonPayload(JSON.parse(trimmed)))
     } catch {
-      // not JSON after all — fall through to the HTML paths
+      // not JSON after all - fall through to the HTML paths
     }
   }
 
@@ -4656,7 +4898,7 @@ async function resolveCreatedTicketId(opts: {
 }
 
 // Turns a create response that carries no ticket id into an error, but only after
-// making sure the ticket really was not created — an error on a saved ticket is
+// making sure the ticket really was not created - an error on a saved ticket is
 // what makes agents create the same ticket twice.
 function createFailureError(response: ClientsFormResponse, fallback: string): Error {
   const validation = clientsFormErrorMessage(response.body)
@@ -4733,7 +4975,7 @@ async function createSubTicket(params: {
   clearTicketCaches()
 
   if (!newTicketId) {
-    throw createFailureError(postResp, `Не удалось создать подзадачу (ответ сервера ${postResp.status}). Обновите заявку — возможно, подзадача всё же создана.`)
+    throw createFailureError(postResp, `Не удалось создать подзадачу (ответ сервера ${postResp.status}). Обновите заявку - возможно, подзадача всё же создана.`)
   }
 
   return { ok: true, newTicketId }
@@ -4865,7 +5107,7 @@ async function createTicketFromCall(params: {
   clearTicketCaches()
 
   if (!newTicketId) {
-    throw createFailureError(postResp, `Не удалось определить номер созданной заявки (ответ сервера ${postResp.status}). Проверьте список заявок — возможно, она уже создана.`)
+    throw createFailureError(postResp, `Не удалось определить номер созданной заявки (ответ сервера ${postResp.status}). Проверьте список заявок - возможно, она уже создана.`)
   }
 
   return { ok: true, newTicketId }
@@ -4909,7 +5151,7 @@ function scoreLabel(raw: unknown): string {
 // Tickets created from this app. clients saves them under its own service user,
 // so created_by_id never matches the agent and the poller would announce a
 // ticket the agent just filled in by hand. Consumed once, when the poller first
-// sees the ticket — later changes to it are notified as usual.
+// sees the ticket - later changes to it are notified as usual.
 const selfCreatedTicketIds = new Set<number>()
 
 function rememberSelfCreatedTicket(ticketId: number | null | undefined): void {
@@ -4919,7 +5161,7 @@ function rememberSelfCreatedTicket(ticketId: number | null | undefined): void {
 // Folds a change the agent just made into the poller's baseline. Zammad records
 // these edits under the clients service user, so `updated_by_id` never matches
 // the agent and the poller would otherwise announce their own status change or
-// comment back to them. Only this one change is absorbed — whatever happens to
+// comment back to them. Only this one change is absorbed - whatever happens to
 // the ticket afterwards is still notified.
 async function markTicketSelfUpdated(ticketId: number): Promise<void> {
   try {
@@ -4949,12 +5191,38 @@ const POLLER_PERIOD_MS = 7000
 const POLLER_MAX_PAUSE_MS = 120_000
 let pollerFailures = 0
 let pollerSkipUntil = 0
+/**
+ * Идёт ли опрос прямо сейчас.
+ *
+ * Раньше такого флага не было, и это оборачивалось против сервера. Пока Zammad
+ * здоров, запрос укладывается в доли секунды и наложений не бывает. Но стоит ему
+ * начать отвечать медленно, запрос висит до шлюзового таймаута - около минуты, -
+ * а таймер за это время срабатывает ещё восемь раз и каждый раз запускает такой
+ * же тяжёлый поиск. Один клиент вместо одного запроса давал восемь одновременных,
+ * и отступ по ошибкам включался лишь тогда, когда очередь была уже набита. То
+ * есть чем хуже серверу, тем сильнее мы его нагружали.
+ */
+let pollerRunning = false
+
+/**
+ * Медленный ответ - это уже сигнал, что серверу тяжело. Ждать ошибки, чтобы
+ * сбавить темп, поздно: к тому времени мы успеваем добавить работы. Поэтому
+ * после долгого ответа следующий опрос отодвигаем, даже если он был удачным.
+ */
+const POLLER_SLOW_MS = 4000
 
 function notePollerFailure(reason: string): void {
   pollerFailures += 1
   const pause = Math.min(POLLER_PERIOD_MS * 2 ** pollerFailures, POLLER_MAX_PAUSE_MS)
   pollerSkipUntil = Date.now() + pause
   logger.warn(`Опрос уведомлений отложен на ${Math.round(pause / 1000)} с: ${reason}`)
+}
+
+function notePollerSlow(ms: number): void {
+  // Отодвигаем примерно на столько, сколько сервер продержал нас сам.
+  const pause = Math.min(ms, POLLER_MAX_PAUSE_MS)
+  pollerSkipUntil = Math.max(pollerSkipUntil, Date.now() + pause)
+  logger.warn(`Опрос уведомлений занял ${ms} мс - следующий отложен на ${Math.round(pause / 1000)} с`)
 }
 
 function startNotificationPoller() {
@@ -4968,6 +5236,10 @@ function startNotificationPoller() {
 
   pollerInterval = setInterval(async () => {
     if (Date.now() < pollerSkipUntil) return
+    // Предыдущий опрос ещё идёт - этот такт пропускаем целиком.
+    if (pollerRunning) return
+    pollerRunning = true
+    const startedAt = Date.now()
     try {
       const stored = readStored()
       const token = stored.zammadToken
@@ -5026,18 +5298,18 @@ function startNotificationPoller() {
           const createdHere = selfCreatedTicketIds.delete(ticketId)
 
           if (!isFirstRun) {
-            clearTicketCaches()
+            clearListCaches()
             notifyFrontend('tickets:list-updated')
             if (createdHere) {
-              // The agent created this ticket a moment ago — the list refresh
+              // The agent created this ticket a moment ago - the list refresh
               // above is all that is needed, announcing it would be noise.
-              logger.info(`Заявка ${ticketId} создана из приложения — уведомление о её появлении пропущено`)
+              logger.info(`Заявка ${ticketId} создана из приложения - уведомление о её появлении пропущено`)
             } else if (isRecent) {
               await checkAndNotify(t, null, 'create')
             } else {
               let changeDetails = ''
               try {
-                const articles = await executeFetchTicketArticles(ticketId)
+                const articles = await fetchZammadArticlesLite(ticketId)
                 const foreignArticles = articles.filter((art: any) => {
                   const creatorId = art.created_by_id || art.user_id
                   return creatorId && parseInt(String(creatorId), 10) !== myUserId
@@ -5056,10 +5328,14 @@ function startNotificationPoller() {
           }
         } else {
           if (new Date(updatedAt).getTime() > new Date(cached.updatedAt).getTime()) {
-            const articles = await executeFetchTicketArticles(ticketId)
+            // Сколько комментариев - уже сказано в ответе поиска (article_ids).
+            // Грузим их сами, только когда появился новый: смена статуса,
+            // ответственного или баллов текста не показывает.
             const oldArticleCount = cached.articleCount
-            const newArticleCount = articles.length
-            
+            const newArticleCount = Array.isArray(t.article_ids)
+              ? t.article_ids.length
+              : (await fetchZammadArticlesLite(ticketId)).length
+
             checkedTickets.set(ticketId, {
               updatedAt,
               articleCount: newArticleCount,
@@ -5073,6 +5349,7 @@ function startNotificationPoller() {
             let changeDetails = ''
             
             if (newArticleCount > oldArticleCount) {
+              const articles = await fetchZammadArticlesLite(ticketId)
               const newArticles = articles.slice(oldArticleCount)
               const foreignArticles = newArticles.filter((art: any) => {
                 const creatorId = art.created_by_id || art.user_id
@@ -5128,6 +5405,10 @@ function startNotificationPoller() {
     } catch (err) {
       notePollerFailure(err instanceof Error ? err.message : String(err))
       logger.error(err)
+    } finally {
+      pollerRunning = false
+      const took = Date.now() - startedAt
+      if (took >= POLLER_SLOW_MS) notePollerSlow(took)
     }
   }, POLLER_PERIOD_MS)
 }
@@ -5152,7 +5433,7 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
     const isMyTicket = normalized.owner?.id === myUserId
 
     // Points are about the ticket's owner, so they are announced on own tickets
-    // only — and by their own switch, independent of the general one.
+    // only - and by their own switch, independent of the general one.
     if (type === 'score') {
       if (!isMyTicket || settings.scoreEnabled === false) return
       notify = true
@@ -5189,7 +5470,7 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
     if (notify) {
       const title = type === 'score' ? `Баллы · заявка №${normalized.number}` : `Заявка №${normalized.number}`
       const body = type === 'score'
-        ? `${details ?? 'Баллы за заявку изменены'} — ${normalized.title}`
+        ? `${details ?? 'Баллы за заявку изменены'} - ${normalized.title}`
         : details || (type === 'create' ? `Создана новая заявка: ${normalized.title}` : `Обновление в заявке: ${normalized.title}`)
       
       const notification: NotificationItem = {
