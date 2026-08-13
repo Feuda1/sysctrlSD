@@ -79,7 +79,7 @@ describe('buildZammadQuery', () => {
 
   it('substitutes the current user for "me"', () => {
     expect(buildZammadQuery({ owners: [{ id: 'me', name: 'Я' }] }, 42)).toBe('owner_id:(42)')
-    expect(buildZammadQuery({ owners: [{ id: 'unassigned', name: '—' }] }, 42)).toBe('owner_id:(1)')
+    expect(buildZammadQuery({ owners: [{ id: 'unassigned', name: '-' }] }, 42)).toBe('owner_id:(1)')
   })
 
   it('uses the reason field name it was given', () => {

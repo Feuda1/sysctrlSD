@@ -73,7 +73,7 @@ export default function App() {
   useEffect(() => { restore() }, [restore])
 
   // A file dropped anywhere but a drop target would make the window navigate to
-  // it — the app would simply vanish and show the file instead.
+  // it - the app would simply vanish and show the file instead.
   useEffect(() => {
     const swallow = (event: DragEvent) => event.preventDefault()
     window.addEventListener('dragover', swallow)

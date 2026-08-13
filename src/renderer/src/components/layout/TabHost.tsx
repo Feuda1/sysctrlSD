@@ -62,7 +62,7 @@ function TabRoutes() {
 
 /**
  * Renders every tab mounted at once; only the active one is visible. Keeping
- * inactive tabs mounted preserves their React state, scroll and form inputs —
+ * inactive tabs mounted preserves their React state, scroll and form inputs -
  * the same trick the old dashboard used for the forms page.
  */
 export function TabHost() {

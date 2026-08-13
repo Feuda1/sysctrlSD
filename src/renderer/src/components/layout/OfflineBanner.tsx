@@ -21,7 +21,7 @@ export function OfflineBanner() {
         >
           <div className="flex select-none items-center gap-2 px-4 py-1.5 text-xs text-muted-foreground">
             <WifiOff className="h-3.5 w-3.5" />
-            Нет подключения к сети — данные показаны на момент последней загрузки
+            Нет подключения к сети - данные показаны на момент последней загрузки
           </div>
         </motion.div>
       )}

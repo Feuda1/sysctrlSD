@@ -117,7 +117,7 @@
     user-select: text;
   }
 
-  /* Controls are actions, not content — inside a .select-text page their labels
+  /* Controls are actions, not content - inside a .select-text page their labels
      would otherwise highlight while clicking or double-clicking. */
   button,
   summary,

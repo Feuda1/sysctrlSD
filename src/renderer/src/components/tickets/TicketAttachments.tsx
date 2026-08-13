@@ -391,7 +391,7 @@ export function MediaViewer({
                     {office === 'excel' ? 'Документ Excel' : office === 'word' ? 'Документ Word' : office === 'powerpoint' ? 'Презентация PowerPoint' : 'Предпросмотр недоступен'}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Встроенный просмотр этого формата недоступен — скачайте файл, чтобы открыть его.
+                    Встроенный просмотр этого формата недоступен - скачайте файл, чтобы открыть его.
                   </p>
                 </div>
                 <Button size="sm" onClick={download} className="gap-2">

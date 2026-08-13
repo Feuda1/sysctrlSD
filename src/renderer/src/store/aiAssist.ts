@@ -40,7 +40,7 @@ function load(): Stored {
     const raw = window.localStorage.getItem(LS_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Stored
-      // Own key entered by hand — keep it, whatever the built-in default is.
+      // Own key entered by hand - keep it, whatever the built-in default is.
       if (parsed.v === STORED_VERSION && parsed.apiKey) {
         return { ...parsed, v: STORED_VERSION }
       }

@@ -193,7 +193,7 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => {
     addToast: (toast) => {
       const id = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`
       set((state) => {
-        // One ticket — one toast on screen: a burst of changes replaces its own
+        // One ticket - one toast on screen: a burst of changes replaces its own
         // message instead of stacking three of them.
         const nextToasts = [...state.toasts.filter(t => t.ticketId !== toast.ticketId), { ...toast, id }]
         if (nextToasts.length > 3) {

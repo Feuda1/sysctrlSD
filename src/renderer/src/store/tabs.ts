@@ -18,7 +18,7 @@ interface TabController {
   forward: () => void
 }
 
-// Controllers live outside reactive state — they change only on mount/unmount
+// Controllers live outside reactive state - they change only on mount/unmount
 // and should not trigger re-renders.
 const controllers = new Map<string, TabController>()
 

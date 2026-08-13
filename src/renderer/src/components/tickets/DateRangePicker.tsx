@@ -20,7 +20,7 @@ const MONTHS = [
   'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
 ]
 
-/** YYYY-MM-DD in local time — the calendar works in days, never in instants. */
+/** YYYY-MM-DD in local time - the calendar works in days, never in instants. */
 export function toDayKey(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
@@ -152,7 +152,7 @@ const PRESETS: Preset[] = [
 
 export function rangeLabel(range: DateRange): string {
   if (!range.from && !range.to) return 'Период'
-  // The field matters as much as the dates — "Сегодня" by creation and by
+  // The field matters as much as the dates - "Сегодня" by creation and by
   // closing are different lists, and the button is the only place that says which.
   const prefix = range.field === 'closed' ? 'Закрыта: ' : ''
   const matched = PRESETS.find(preset => {
@@ -161,7 +161,7 @@ export function rangeLabel(range: DateRange): string {
   })
   if (matched) return prefix + matched.label
   if (range.from && range.to) {
-    return prefix + (range.from === range.to ? formatRu(range.from) : `${formatRu(range.from)} — ${formatRu(range.to)}`)
+    return prefix + (range.from === range.to ? formatRu(range.from) : `${formatRu(range.from)} - ${formatRu(range.to)}`)
   }
   return prefix + (range.from ? `с ${formatRu(range.from)}` : `по ${formatRu(range.to)}`)
 }
@@ -398,7 +398,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                         onChange={(event) => {
                           const masked = maskDayInput(event.target.value)
                           setFromText(masked)
-                          // A complete date applies immediately — no Enter needed.
+                          // A complete date applies immediately - no Enter needed.
                           if (masked.length === 10) applyTyped('from', masked)
                         }}
                         onBlur={() => applyTyped('from', fromText)}

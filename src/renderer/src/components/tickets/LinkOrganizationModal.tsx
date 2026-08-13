@@ -96,7 +96,7 @@ export function LinkOrganizationModal({
           </div>
         )}
 
-        {/* Привязка меняет организацию в профиле клиента, а не только у заявки —
+        {/* Привязка меняет организацию в профиле клиента, а не только у заявки -
             последствие слишком серьёзное, чтобы догадываться о нём по названию. */}
         <p className="flex items-start gap-1.5 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-[11px] leading-4 text-muted-foreground">
           <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-500" />

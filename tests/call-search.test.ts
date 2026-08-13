@@ -41,7 +41,7 @@ describe('matchesCallQuery', () => {
   })
 
   it('короткие цифры ищет как есть, а не как номер', () => {
-    // «13» есть в длительности, но не в номере — совпадение по тексту.
+    // «13» есть в длительности, но не в номере - совпадение по тексту.
     expect(matchesCallQuery(call({ raw: {} }), '13')).toBe(true)
     expect(matchesCallQuery(call({ startedAt: '', duration: '', raw: {} }), '13')).toBe(false)
   })

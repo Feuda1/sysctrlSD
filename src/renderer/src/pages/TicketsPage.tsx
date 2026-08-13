@@ -24,7 +24,7 @@ interface StateChipProps {
 }
 
 // A state chip that opens a compact, anchored dropdown listing the user's
-// tickets in that state — instead of taking over the whole content area.
+// tickets in that state - instead of taking over the whole content area.
 function StateChip({ state, color, tickets, onOpenTicket }: StateChipProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -138,7 +138,7 @@ function readStoredDateRange(): DateRange {
 const DEFAULT_SORTING: SortingState = [{ id: 'updatedAt', desc: true }]
 
 // Opening a ticket unmounts this page, so the chosen filter has to outlive the
-// component — otherwise coming back always lands on the first tab.
+// component - otherwise coming back always lands on the first tab.
 function readStoredFilterWrapperId(): number | null {
   const raw = Number(window.localStorage.getItem(ACTIVE_FILTER_STORAGE_KEY))
   return Number.isFinite(raw) && raw > 0 ? raw : null

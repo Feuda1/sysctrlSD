@@ -26,7 +26,7 @@ interface ChecklistData {
 }
 
 /**
- * В описаниях пунктов почти всегда есть ссылки — на инструкцию, таблицу, чат.
+ * В описаниях пунктов почти всегда есть ссылки - на инструкцию, таблицу, чат.
  * Простым текстом их приходилось копировать руками, поэтому они становятся
  * настоящими ссылками и открываются во внешнем браузере.
  */
@@ -111,7 +111,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
     onMutate: async (item) => {
       setBusyItemId(item.id)
       // Отметка ставится сразу: ждать ответа, глядя на неизменившийся пункт,
-      // — это ровно то, из-за чего кажется, что нажатие не сработало.
+      // - это ровно то, из-за чего кажется, что нажатие не сработало.
       const previous = queryClient.getQueryData<ChecklistData>(['ticket-checklist', ticketId])
       queryClient.setQueryData<ChecklistData>(['ticket-checklist', ticketId], current =>
         current
@@ -131,7 +131,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
       return { previous }
     },
     onError: (_error, _item, context) => {
-      // Сервер не принял — возвращаем как было, иначе отметка соврёт.
+      // Сервер не принял - возвращаем как было, иначе отметка соврёт.
       if (context?.previous) {
         queryClient.setQueryData(['ticket-checklist', ticketId], context.previous)
       }
@@ -194,7 +194,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
   const items = groups.flatMap(group => group.items)
   const done = items.filter(item => item.checked).length
   const templates = data?.templates ?? []
-  // Разделы уже существующих пунктов — чаще всего новый пункт кладут в один из них.
+  // Разделы уже существующих пунктов - чаще всего новый пункт кладут в один из них.
   const knownCategories = [...new Set(groups.map(group => group.category).filter(Boolean))]
 
   return (
@@ -234,7 +234,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                 </span>
               </div>
 
-              {/* Отмечать всё — действие частое, ему не место в меню «Добавить». */}
+              {/* Отмечать всё - действие частое, ему не место в меню «Добавить». */}
               <button
                 type="button"
                 onClick={() => wholeChecklist.mutate(done === items.length ? 'uncheck' : 'check')}
@@ -400,11 +400,11 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
         </div>
       )}
 
-      {/* Пустой чек-лист — обычное дело, поэтому карточка остаётся тонкой
+      {/* Пустой чек-лист - обычное дело, поэтому карточка остаётся тонкой
           строкой: она нужна только чтобы было куда нажать «Добавить». */}
       {!isLoading && !error && items.length === 0 && !formOpen && (
         <p className="text-xs text-muted-foreground">
-          Пунктов пока нет — добавьте из шаблона или свой.
+          Пунктов пока нет - добавьте из шаблона или свой.
         </p>
       )}
 
@@ -458,7 +458,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                           : 'border-border/60 bg-muted/25 hover:border-primary/40 hover:bg-muted/40'
                       )}
                     >
-                    {/* Отметка и название — одна кнопка; описание живёт снаружи,
+                    {/* Отметка и название - одна кнопка; описание живёт снаружи,
                         потому что ссылку внутри кнопки не нажать. */}
                     <button
                       type="button"
@@ -508,7 +508,7 @@ export function TicketChecklist({ ticketId }: { ticketId: number }) {
                       )}
                     </div>
 
-                    {/* Проступает при наведении: удаление — не то действие,
+                    {/* Проступает при наведении: удаление - не то действие,
                         которое должно быть под рукой постоянно. */}
                     <button
                       type="button"

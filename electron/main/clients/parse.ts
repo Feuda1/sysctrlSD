@@ -85,7 +85,7 @@ export function parseClientsScoreControl(html: string): ClientsScoreControl {
 
   // Case-sensitive and anchored to a <label>: the ticket history table also
   // contains the words "Баллы за заявку", and matching that row picked up
-  // whatever select came next — the article type list.
+  // whatever select came next - the article type list.
   const labelMatch = /<label\b[^>]*>\s*БАЛЛЫ ЗА ЗАЯВКУ\s*<\/label>/.exec(html)
   if (!labelMatch) return empty
 
@@ -114,7 +114,7 @@ export function parseClientsScoreControl(html: string): ClientsScoreControl {
 }
 
 /**
- * A mere mention of /Account/Login is not enough — the profile page links to
+ * A mere mention of /Account/Login is not enough - the profile page links to
  * account actions too. Only a real login form counts.
  */
 export function isClientsLoginPage(html: string): boolean {
@@ -158,7 +158,7 @@ export function ticketIdFromUrl(value: unknown): number | null {
 }
 
 /**
- * Даты clients отдаёт как «13.08.2026\r15:00:00» — с переводом строки посреди
+ * Даты clients отдаёт как «13.08.2026\r15:00:00» - с переводом строки посреди
  * значения. Приводим к обычному ISO, чтобы дальше по приложению они выглядели
  * так же, как даты из Zammad.
  */

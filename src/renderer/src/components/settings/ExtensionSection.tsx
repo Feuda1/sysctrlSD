@@ -9,9 +9,9 @@ export const EXTENSION_GUIDES: { id: string; name: string; steps: string[] }[] =
     id: 'chromium',
     name: 'Chrome, Edge, Яндекс, Opera',
     steps: [
-      'Откройте страницу расширений: chrome://extensions (в Edge — edge://extensions, в Яндексе — browser://extensions).',
+      'Откройте страницу расширений: chrome://extensions (в Edge - edge://extensions, в Яндексе - browser://extensions).',
       'Включите «Режим разработчика» в правом верхнем углу.',
-      'Нажмите «Загрузить распакованное расширение» и выберите папку расширения (путь — выше).'
+      'Нажмите «Загрузить распакованное расширение» и выберите папку расширения (путь - выше).'
     ]
   },
   {

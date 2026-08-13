@@ -1,17 +1,17 @@
 // Ошибка сети и ошибка данных требуют разных действий: первую лечит повтор,
-// вторую — нет. Раньше и то и другое показывалось одной красной строкой с
+// вторую - нет. Раньше и то и другое показывалось одной красной строкой с
 // техническим текстом, и понять, стоит ли ждать, было невозможно.
 export type ErrorKind = 'offline' | 'network' | 'auth' | 'server' | 'data'
 
 export interface DescribedError {
   kind: ErrorKind
-  /** Короткая строка о сути — её видно первой. */
+  /** Короткая строка о сути - её видно первой. */
   title: string
   /** Что делать дальше; пусто, если советовать нечего. */
   hint: string
   /** Есть ли смысл в кнопке «Повторить». */
   canRetry: boolean
-  /** Исходный текст — показывается мелким шрифтом под подсказкой. */
+  /** Исходный текст - показывается мелким шрифтом под подсказкой. */
   detail: string
 }
 
@@ -84,7 +84,7 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
     return {
       kind: 'network',
       title: 'Сервер недоступен',
-      hint: 'Связи с сервером нет — данные не потеряны, попробуйте повторить.',
+      hint: 'Связи с сервером нет - данные не потеряны, попробуйте повторить.',
       canRetry: true,
       detail
     }
@@ -94,7 +94,7 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
     return {
       kind: 'auth',
       title: 'Нет доступа',
-      hint: 'Проверьте вход и Zammad API ключ в настройках — повтор не поможет.',
+      hint: 'Проверьте вход и Zammad API ключ в настройках - повтор не поможет.',
       canRetry: false,
       detail
     }
@@ -114,7 +114,7 @@ export function describeError(error: unknown, fallback: string, isOnline = true)
 
   return {
     kind: 'data',
-    // Сообщение с сервера уже написано для человека — оно и есть заголовок,
+    // Сообщение с сервера уже написано для человека - оно и есть заголовок,
     // дублировать его ниже мелким шрифтом незачем.
     title: detail || fallback,
     hint: '',

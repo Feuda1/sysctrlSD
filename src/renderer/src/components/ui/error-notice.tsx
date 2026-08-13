@@ -28,7 +28,7 @@ export function ErrorNotice({ error, fallback, onRetry, isRetrying, className }:
   const isOnline = useOnlineStatus()
   const described = describeError(error, fallback, isOnline)
   const Icon = ICONS[described.kind]
-  // Пропавшая сеть — это не поломка, поэтому и цвет спокойнее красного.
+  // Пропавшая сеть - это не поломка, поэтому и цвет спокойнее красного.
   const isCalm = described.kind === 'offline' || described.kind === 'network'
 
   return (

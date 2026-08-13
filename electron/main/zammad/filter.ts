@@ -4,7 +4,7 @@ import { zammadSearchValue } from './query'
 /**
  * Turning a filter's conditions into a Zammad query and applying the same
  * conditions locally. Both sides must agree, which is exactly why they live
- * together here — and why they are Electron-free and testable.
+ * together here - and why they are Electron-free and testable.
  */
 
 /** Zammad field holding the iiko reason; the name differs between installations. */
@@ -26,7 +26,7 @@ export function normalizeIikoReasonValues(value: any): string[] {
     const parsed = JSON.parse(text)
     if (Array.isArray(parsed)) return normalizeIikoReasonValues(parsed)
   } catch {
-    // Not JSON — treat it as a plain value below.
+    // Not JSON - treat it as a plain value below.
   }
   return [text]
 }
@@ -45,7 +45,7 @@ export function normalizeTicketTagValues(value: any): string[] {
     const parsed = JSON.parse(text)
     if (Array.isArray(parsed)) return normalizeTicketTagValues(parsed)
   } catch {
-    // Not JSON — split the plain string below.
+    // Not JSON - split the plain string below.
   }
   return text.split(/\s*(?:\r?\n|\|\||;;)\s*/).map(item => item.trim()).filter(Boolean)
 }

@@ -78,7 +78,7 @@ function extensionPath(): string {
 
 // Системные кнопки окна (titleBarOverlay) больше не используются: они рисуются
 // поверх всего содержимого, накрывая крестики диалогов, и не поддаются нашей
-// теме. Кнопки нарисованы в интерфейсе — см. WindowControls.
+// теме. Кнопки нарисованы в интерфейсе - см. WindowControls.
 
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
@@ -101,8 +101,8 @@ function attachContextMenu(win: BrowserWindow): void {
       }))
     }
 
-    // Works for any rendered image regardless of where it came from — an
-    // attachment thumbnail, an image inside an article, or the media viewer —
+    // Works for any rendered image regardless of where it came from - an
+    // attachment thumbnail, an image inside an article, or the media viewer -
     // because copyImageAt takes what is painted at that point.
     if (params.mediaType === 'image') {
       if (menu.items.length > 0) menu.append(new MenuItem({ type: 'separator' }))
@@ -115,7 +115,7 @@ function attachContextMenu(win: BrowserWindow): void {
           label: 'Сохранить изображение…',
           click: () => win.webContents.downloadURL(params.srcURL)
         }))
-        // A data: URL is the image itself — copying it as text is useless.
+        // A data: URL is the image itself - copying it as text is useless.
         if (/^https?:/i.test(params.srcURL)) {
           menu.append(new MenuItem({
             label: 'Копировать ссылку на изображение',
@@ -126,7 +126,7 @@ function attachContextMenu(win: BrowserWindow): void {
     }
 
     // Only offer editing where editing is possible. "Выбрать всё" used to appear
-    // on every right click anywhere in the app, which is noise — the renderer
+    // on every right click anywhere in the app, which is noise - the renderer
     // builds its own menu for tabs, tickets and the like.
     const hasSelection = !!params.selectionText.trim()
     if (params.isEditable) {
@@ -331,7 +331,7 @@ app.whenReady().then(() => {
   /**
    * Пока Windows обрабатывает нажатие в окне, смена его состояния молча
    * отбрасывается: команда не откладывается, а теряется совсем. Поэтому действие
-   * повторяется, пока окно не примет его — но не бесконечно.
+   * повторяется, пока окно не примет его - но не бесконечно.
    */
   const applyWindowState = (
     win: BrowserWindow | null,
@@ -411,7 +411,7 @@ app.whenReady().then(() => {
   // `models` fallback array at 3). We try chunk by chunk: within a chunk
   // OpenRouter itself falls back across the 3; across chunks we retry on
   // rate-limit. Providers are interleaved so a single busy provider doesn't
-  // block a whole chunk — for ~10 users the free limit practically never runs
+  // block a whole chunk - for ~10 users the free limit practically never runs
   // out. All are general-purpose instruct models (no reasoning/coder) and
   // reachable from RU.
   const OPENROUTER_MODEL_CHUNKS: string[][] = [
@@ -421,7 +421,7 @@ app.whenReady().then(() => {
   ]
 
   // AI completion runs in the main process (no renderer CORS, uses system proxy
-  // — same path as the working Zammad requests).
+  // - same path as the working Zammad requests).
   ipcMain.handle('ai:complete', async (_event, params: {
     systemPrompt: string; userText: string; apiKey: string; provider: 'groq' | 'deepseek' | 'openrouter'
   }) => {

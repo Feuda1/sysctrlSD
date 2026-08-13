@@ -43,7 +43,7 @@ export default function LoginPage() {
     resolver: zodResolver(schema)
   })
 
-  // No redirect needed — App swaps to the dashboard when status becomes authenticated.
+  // No redirect needed - App swaps to the dashboard when status becomes authenticated.
 
   useEffect(() => {
     if (!error) return
@@ -60,7 +60,7 @@ export default function LoginPage() {
   const isLoading = status === 'loading'
 
   return (
-    // drag-region on root — the whole window background is draggable
+    // drag-region on root - the whole window background is draggable
     <div className="drag-region relative flex h-screen w-screen items-center justify-center overflow-hidden bg-background">
       <BackgroundOrbs />
 

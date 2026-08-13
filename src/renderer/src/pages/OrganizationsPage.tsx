@@ -52,7 +52,7 @@ export default function OrganizationsPage() {
   }
 
   const formatMinutes = (value: number | null) => {
-    if (value === null || value === undefined) return '—'
+    if (value === null || value === undefined) return '-'
     return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(value)
   }
 
@@ -143,10 +143,10 @@ export default function OrganizationsPage() {
                         {org.name}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground truncate" title={org.responsible_group || ''}>
-                        {org.responsible_group || '—'}
+                        {org.responsible_group || '-'}
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground truncate" title={org.manager || ''}>
-                        {org.manager || '—'}
+                        {org.manager || '-'}
                       </td>
                       <td className={cn('px-4 py-2.5 font-medium tabular-nums', org.sum_debt > 0 ? 'text-destructive' : 'text-muted-foreground')}>
                         {formatCurrency(org.sum_debt)}

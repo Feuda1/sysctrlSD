@@ -36,7 +36,7 @@ describe('parseChecklist', () => {
     expect(open.every(item => item.checkedBy === '')).toBe(true)
   })
 
-  it('запоминает раздел пункта — его требует сервер при отметке', () => {
+  it('запоминает раздел пункта - его требует сервер при отметке', () => {
     expect(groups[0].items[0].category).not.toBe('')
   })
 

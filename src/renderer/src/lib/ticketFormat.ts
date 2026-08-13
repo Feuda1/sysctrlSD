@@ -3,7 +3,7 @@ import type { TicketAttachment } from '@/types/ticket'
 /**
  * Pure helpers of the ticket page: formatting, classification and small parsers.
  * They were living inside TicketDetailsPage.tsx, where they made a 4900-line file
- * hard to navigate — and they are exactly the kind of code worth testing on its own.
+ * hard to navigate - and they are exactly the kind of code worth testing on its own.
  */
 
 /** One entry in the media viewer. `preloadedDataUrl` is set for inline images
@@ -236,7 +236,7 @@ export function toHtmlComment(text: string): string {
     .replace(/"/g, '&quot;')
   if (!escaped.trim()) return ''
   // Zammad strips the style attribute when it sanitizes an article, so white-space
-  // alone lost every line break and the comment arrived as a single line — the
+  // alone lost every line break and the comment arrived as a single line - the
   // breaks have to be real <br> elements.
   return `<div>${escaped.replace(/\r\n|\r|\n/g, '<br>')}</div>`
 }

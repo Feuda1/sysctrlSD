@@ -80,7 +80,7 @@ export function CreateSubTicketModal({
         onCreated(res.newTicketId)
         onClose()
       } else {
-        // The subtask may still have been created — refresh so the list shows it
+        // The subtask may still have been created - refresh so the list shows it
         // instead of leaving the modal hanging without a hint.
         onCreated(null)
         setError('Не удалось определить номер созданной подзадачи. Обновите заявку и проверьте список вложенных заявок.')

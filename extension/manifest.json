@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "sysctrlSD — переход в приложение",
+  "name": "sysctrlSD - переход в приложение",
   "version": "1.0.1",
   "description": "Открывает заявки clients.denvic.ru сразу в приложении sysctrlSD.",
   "permissions": [

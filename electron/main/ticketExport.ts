@@ -105,7 +105,7 @@ export async function exportTicket(
   const ticketNumber = ticket.clientNumber || ticket.number || String(ticket.id)
   const customerName = [details.customer?.firstname, details.customer?.lastname].filter(Boolean).join(' ').trim()
 
-  lines.push(`# Заявка №${ticketNumber} — ${ticket.title || 'без темы'}`, '')
+  lines.push(`# Заявка №${ticketNumber} - ${ticket.title || 'без темы'}`, '')
   const meta: [string, string][] = [
     ['ID в Zammad', String(ticket.id)],
     ['Номер clients', ticket.clientNumber ? String(ticket.clientNumber) : ''],
@@ -163,11 +163,11 @@ export async function exportTicket(
       }
 
       const label = alt || saved?.filename || 'изображение'
-      return `_[${label} — изображение не выгружено]_`
+      return `_[${label} - изображение не выгружено]_`
     }
 
     const sender = article.internal ? 'внутренняя заметка' : (article.sender === 'customer' ? 'от клиента' : 'от сотрудника')
-    lines.push(`## Сообщение ${number} — ${article.creatorName || 'Неизвестно'}`)
+    lines.push(`## Сообщение ${number} - ${article.creatorName || 'Неизвестно'}`)
     lines.push(`*${formatDateTime(article.createdAt)} · ${sender}*`, '')
 
     const body = htmlToMarkdown(article.body || '', resolveImage)
@@ -182,8 +182,8 @@ export async function exportTicket(
         const size = humanSize(saved.size)
         const kind = saved.isImage ? 'изображение' : 'файл'
         lines.push(saved.exported
-          ? `- [${saved.filename}](${saved.path}) — ${kind}${size ? `, ${size}` : ''}`
-          : `- ${saved.filename} — ${kind}${size ? `, ${size}` : ''} (не выгружен)`)
+          ? `- [${saved.filename}](${saved.path}) - ${kind}${size ? `, ${size}` : ''}`
+          : `- ${saved.filename} - ${kind}${size ? `, ${size}` : ''} (не выгружен)`)
       }
       lines.push('')
     }
@@ -196,8 +196,8 @@ export async function exportTicket(
   }
 
   const markdown = lines.join('\n')
-  const baseName = sanitizeFilename(`Заявка ${ticketNumber} — ${ticket.title || ''}`.trim())
-  // Plain .md when the export is text and nothing else — an archive around a
+  const baseName = sanitizeFilename(`Заявка ${ticketNumber} - ${ticket.title || ''}`.trim())
+  // Plain .md when the export is text and nothing else - an archive around a
   // single file would only get in the way.
   const asZip = entries.length > 0
 
@@ -218,7 +218,7 @@ export async function exportTicket(
   }
   // Диалог обязан знать своё окно. Без него Windows отдаёт владение временному
   // окну, которое закрывается раньше диалога, и после сохранения приложение
-  // перестаёт принимать клики целиком — помогает только перезапуск.
+  // перестаёт принимать клики целиком - помогает только перезапуск.
   const owner = BrowserWindow.getFocusedWindow()
     ?? BrowserWindow.getAllWindows().find(win => !win.isDestroyed() && win.isVisible())
     ?? null

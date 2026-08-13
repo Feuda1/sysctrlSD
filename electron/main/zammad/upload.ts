@@ -3,7 +3,7 @@ import logger from 'electron-log/main'
 
 /**
  * Sending a ticket update that carries attachments. Zammad takes them inside the
- * article itself, so the whole thing is one request — but written to the socket
+ * article itself, so the whole thing is one request - but written to the socket
  * in pieces, which is what makes progress and cancelling possible at all.
  * Without this the user stared at a frozen button for the length of a 20 MB
  * upload with no way out.

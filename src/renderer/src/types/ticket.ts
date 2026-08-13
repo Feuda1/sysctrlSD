@@ -216,7 +216,7 @@ export function formatScore(value: number): string {
 }
 
 export function formatTicketDate(raw: string): string {
-  if (!raw) return '—'
+  if (!raw) return '-'
   try {
     const d = new Date(raw)
     if (!isNaN(d.getTime())) {

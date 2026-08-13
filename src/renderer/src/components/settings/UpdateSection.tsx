@@ -42,7 +42,7 @@ export function UpdateSettings() {
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">sysctrlSD</p>
-            <p className="text-xs text-muted-foreground">Версия {version || '—'}</p>
+            <p className="text-xs text-muted-foreground">Версия {version || '-'}</p>
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@ export function UpdateSettings() {
       </div>
 
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Обновления загружаются автоматически в фоне. Когда новая версия будет готова, появится уведомление — установить можно сразу или позже отсюда.
+        Обновления загружаются автоматически в фоне. Когда новая версия будет готова, появится уведомление - установить можно сразу или позже отсюда.
       </p>
     </div>
   )

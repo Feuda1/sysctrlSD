@@ -13,7 +13,7 @@ export function TicketExportModal({ ticketId, onClose }: { ticketId: number; onC
 
   const nothingSelected = !withText && !withImages && !withFiles
 
-  // The overlay covers the whole window, so it must always be dismissable —
+  // The overlay covers the whole window, so it must always be dismissable -
   // otherwise a modal left standing looks exactly like a frozen app.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

@@ -43,14 +43,14 @@ export function TabNavBridge({ tabId, seededBack = false }: { tabId: string; see
       if (known !== -1) {
         s.index = known
       } else {
-        // Navigated into a seeded (placeholder) entry — step back and record it.
+        // Navigated into a seeded (placeholder) entry - step back and record it.
         s.index = Math.max(0, s.index - 1)
         s.keys[s.index] = location.key
       }
     } else if (navType === 'REPLACE') {
       s.keys[s.index] = location.key
     } else {
-      // PUSH — drop any forward entries and append.
+      // PUSH - drop any forward entries and append.
       s.keys = [...s.keys.slice(0, s.index + 1), location.key]
       s.index = s.keys.length - 1
     }
@@ -62,7 +62,7 @@ export function TabNavBridge({ tabId, seededBack = false }: { tabId: string; see
       canGoForward: s.index < s.keys.length - 1
     })
 
-    // Title — prefer the client-facing ticket number from cache when available.
+    // Title - prefer the client-facing ticket number from cache when available.
     const meta = pathToTabMeta(path)
     let title = meta.title
     const ticketId = ticketIdFromPath(path)

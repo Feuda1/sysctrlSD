@@ -136,11 +136,11 @@ export function MergeTicketModal({
               <div>
                 <p className="font-bold text-amber-600 dark:text-amber-400 mb-1">Объединить текущую заявку:</p>
                 <div className="my-1.5 pl-2 border-l-2 border-amber-500/50 font-medium">
-                  #{ticketNumber} — {ticketTitle}
+                  #{ticketNumber} - {ticketTitle}
                 </div>
                 с выбранной заявкой:
                 <div className="my-1.5 pl-2 border-l-2 border-amber-500/50 font-medium">
-                  #{target.clientNumber || target.id} — {target.title}
+                  #{target.clientNumber || target.id} - {target.title}
                 </div>
               </div>
             </div>

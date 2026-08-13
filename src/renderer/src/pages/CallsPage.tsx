@@ -151,7 +151,7 @@ const BottomPlayer = forwardRef<BottomPlayerHandle, {
       })
   }, [audioUrl])
 
-  // Sync volume / speed — re-apply on audioUrl change too, since a.load()
+  // Sync volume / speed - re-apply on audioUrl change too, since a.load()
   // resets playbackRate and the restored settings would otherwise never be applied.
   useEffect(() => {
     const a = audioRef.current
@@ -177,7 +177,7 @@ const BottomPlayer = forwardRef<BottomPlayerHandle, {
   }
 
   const progress = duration ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0
-  const source = call.client || call.organization || call.phone || call.raw['Источник'] || call.raw['source'] || '—'
+  const source = call.client || call.organization || call.phone || call.raw['Источник'] || call.raw['source'] || '-'
 
   return (
     <div
@@ -192,16 +192,16 @@ const BottomPlayer = forwardRef<BottomPlayerHandle, {
         onEnded={() => setPlaying(false)}
       />
 
-      {/* Left — call identity */}
+      {/* Left - call identity */}
       <div className="flex min-w-0 items-center gap-2">
         <DirectionIcon direction={call.direction} />
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-xs font-medium text-foreground">{source}</span>
-          <span className="text-[10px] tabular-nums text-muted-foreground">{call.startedAt || '—'}</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">{call.startedAt || '-'}</span>
         </div>
       </div>
 
-      {/* Center — play controls */}
+      {/* Center - play controls */}
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -226,7 +226,7 @@ const BottomPlayer = forwardRef<BottomPlayerHandle, {
         <span className="text-[11px] tabular-nums text-muted-foreground">{formatTime(duration)}</span>
       </div>
 
-      {/* Right — speed, volume, close */}
+      {/* Right - speed, volume, close */}
       <div className="flex items-center justify-end gap-3">
         <div className="flex items-center gap-0.5">
           {[1, 1.25, 1.5, 2].map(v => (
@@ -324,7 +324,7 @@ function isPendingState(stateName: string, stateId: number): boolean {
   return n.includes('отложен') || n.includes('ожидан') || n.includes('pend') || stateId === 3 || stateId === 7 || stateId === 4
 }
 
-// "Закрыта" — but not "В ожидании закрытия" (that one is a pending state).
+// "Закрыта" - but not "В ожидании закрытия" (that one is a pending state).
 function isClosedState(stateName: string): boolean {
   const n = (stateName || '').toLowerCase().replace(/ё/g, 'е')
   return n.includes('закрыт') && !n.includes('ожида')
@@ -1035,7 +1035,7 @@ export default function CallsPage() {
   const [bindTicketError, setBindTicketError] = useState('')
 
   // Поиск запускается только по Enter. Раньше он срывался на каждый набранный
-  // символ, а каждый такой поиск на стороне clients — это перебор архива до
+  // символ, а каждый такой поиск на стороне clients - это перебор архива до
   // полуминуты; половина запусков была по недописанному номеру.
   const applySearch = () => setDebouncedSearch(search.trim())
   const clearSearch = () => {
@@ -1092,22 +1092,22 @@ export default function CallsPage() {
 
   const serverCalls = data?.records ?? []
 
-  // Последняя просмотренная страница раздела — по ней ищем мгновенно, пока
+  // Последняя просмотренная страница раздела - по ней ищем мгновенно, пока
   // сервер перебирает архив.
   const loadedBySection = useRef<Record<SectionKey, CallRecord[]>>({ history: [], mine: [], current: [] })
   useEffect(() => {
     if (!debouncedSearch && data?.records) loadedBySection.current[activeSection] = data.records
   }, [data, debouncedSearch, activeSection])
 
-  // Свой добавочный: в звонках «ответчик» — это он. Берём из профиля clients, а
-  // если там не заполнено — из уже загруженных «моих» звонков, где ответчик я.
+  // Свой добавочный: в звонках «ответчик» - это он. Берём из профиля clients, а
+  // если там не заполнено - из уже загруженных «моих» звонков, где ответчик я.
   const { data: clientProfile } = useQuery({
     queryKey: ['client-profile'],
     queryFn: () => window.api.auth.getClientProfileSettings(),
     staleTime: Infinity
   })
   // Первая страница «моих» без поиска: стоит полсекунды, зато по ней сразу
-  // виден свой добавочный и есть по чему искать мгновенно — даже если человек
+  // виден свой добавочный и есть по чему искать мгновенно - даже если человек
   // начал с поиска и раздел ни разу не открывал.
   const { data: minePreview } = useQuery({
     queryKey: ['calls', 'mine', '', 1, BROWSE_PAGE_SIZE],
@@ -1135,7 +1135,7 @@ export default function CallsPage() {
 
   // «Мои» на стороне clients ищутся в разы дольше общей истории: по одному и
   // тому же номеру 19 секунд против полутора. Поэтому пока идёт долгий поиск,
-  // спрашиваем общую историю и оставляем из неё свои звонки — список получается
+  // спрашиваем общую историю и оставляем из неё свои звонки - список получается
   // тот же, но виден почти сразу.
   const historyFastPath = useQuery({
     queryKey: ['calls', 'history', debouncedSearch, 1, callsPerPage],
@@ -1289,7 +1289,7 @@ export default function CallsPage() {
 
   // Closing follows the same rules as normal ticket work: reason + spent time +
   // closing comment are required. The ticket is created open, then closed via the
-  // Zammad API (which the wrapper-based create cannot do — it has no reason field).
+  // Zammad API (which the wrapper-based create cannot do - it has no reason field).
   const handleCloseTicket = async () => {
     if (!createTicketModalCall) return
     if (!createTicketTitle.trim() || !createTicketBody.trim()) {
@@ -1420,7 +1420,7 @@ export default function CallsPage() {
                 if (e.key === 'Enter') applySearch()
                 if (e.key === 'Escape') clearSearch()
               }}
-              placeholder="Номер, клиент, организация — и Enter"
+              placeholder="Номер, клиент, организация - и Enter"
               className="h-9 w-full rounded-md border border-border bg-muted/50 pl-8 pr-8 text-xs text-foreground outline-none focus:border-primary/60"
             />
             {search && (
@@ -1433,7 +1433,7 @@ export default function CallsPage() {
                 <X className="h-3 w-3" />
               </button>
             )}
-            {/* Ход поиска — полоской под самим полем: крутящееся колесо рядом с
+            {/* Ход поиска - полоской под самим полем: крутящееся колесо рядом с
                 текстом выглядело чужеродно. */}
             {awaitingServer && (
               <span className="pointer-events-none absolute inset-x-2 bottom-0 h-0.5 overflow-hidden rounded-full bg-primary/15">
@@ -1489,7 +1489,7 @@ export default function CallsPage() {
             </div>
           ) : calls.map(call => {
             const isActive = playingCall?.id === call.id
-            const source = call.client || call.organization || call.phone || call.raw['Источник'] || call.raw['source'] || '—'
+            const source = call.client || call.organization || call.phone || call.raw['Источник'] || call.raw['source'] || '-'
             const isCreateOpen = activeCreateDropdownCallId === call.id
             const isBindOpen = activeBindDropdownCallId === call.id
 
@@ -1509,11 +1509,11 @@ export default function CallsPage() {
                   <DirectionIcon direction={call.direction} />
                 </div>
                 <div className="w-36 shrink-0 select-text tabular-nums text-foreground/70" title={call.startedAt || ''}>
-                  {call.startedAt || '—'}
+                  {call.startedAt || '-'}
                 </div>
                 <div className="w-72 shrink-0 select-text text-foreground pr-4 truncate" title={source}>{source}</div>
-                <div className="w-44 shrink-0 select-text truncate text-foreground/80" title={call.operator || ''}>{call.operator || '—'}</div>
-                <div className="w-28 shrink-0 select-text tabular-nums text-foreground/70">{call.duration || '—'}</div>
+                <div className="w-44 shrink-0 select-text truncate text-foreground/80" title={call.operator || ''}>{call.operator || '-'}</div>
+                <div className="w-28 shrink-0 select-text tabular-nums text-foreground/70">{call.duration || '-'}</div>
                 {hasRecordingCol && (
                   <div className="w-8 shrink-0">
                     {call.recordingUrl ? (
@@ -1539,7 +1539,7 @@ export default function CallsPage() {
                         }
                       </button>
                     ) : (
-                      <span className="flex h-7 w-7 items-center justify-center text-[10px] text-muted-foreground/20">—</span>
+                      <span className="flex h-7 w-7 items-center justify-center text-[10px] text-muted-foreground/20">-</span>
                     )}
                   </div>
                 )}
@@ -1730,7 +1730,7 @@ export default function CallsPage() {
       <div className="mt-3 flex shrink-0 items-center justify-between gap-3 px-1">
         {debouncedSearch ? (
           // При поиске листать нечем: сервер отдаёт ровно столько, сколько
-          // успел найти, — поэтому не страницы, а «показать ещё».
+          // успел найти, - поэтому не страницы, а «показать ещё».
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {awaitingServer && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
             {showingPreliminary

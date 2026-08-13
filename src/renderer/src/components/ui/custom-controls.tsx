@@ -8,7 +8,7 @@ import { toDateTimeLocalValue } from '@/lib/ticketFormat'
 /**
  * Form controls of the ticket page: a select, a multi-select, a toggle and a
  * date-time picker. They are page-independent, and other screens carry their own
- * copies of the same widgets — this is the single place they should come from.
+ * copies of the same widgets - this is the single place they should come from.
  */
 export function CustomToggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label: string }) {
   return (

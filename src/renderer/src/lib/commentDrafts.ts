@@ -2,7 +2,7 @@
  * Unsent comment text, kept per ticket. A half-written answer used to disappear
  * with the app; now it is waiting when the ticket is opened again.
  *
- * Only the text is stored — attachments are files the browser cannot re-open on
+ * Only the text is stored - attachments are files the browser cannot re-open on
  * its own, and pretending otherwise would be worse than saying nothing.
  */
 
@@ -50,6 +50,6 @@ export function clearCommentDraft(ticketId: number): void {
   try {
     window.localStorage.removeItem(key(ticketId))
   } catch {
-    // Nothing to do — the draft simply stays until it ages out.
+    // Nothing to do - the draft simply stays until it ages out.
   }
 }

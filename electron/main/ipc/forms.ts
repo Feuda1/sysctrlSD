@@ -5,8 +5,8 @@ import log from 'electron-log/main'
 
 const WRAPPER_BASE = 'https://clients.denvic.ru'
 
-// net.fetch() ignores the `session` option — that option belongs to
-// net.request() — so every clients request has always gone through the default
+// net.fetch() ignores the `session` option - that option belongs to
+// net.request() - so every clients request has always gone through the default
 // session, and that is where the login cookie lives. Pointing this helper at the
 // same session is what makes the cookie checks agree with reality.
 function wrapperSession() {

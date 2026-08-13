@@ -159,11 +159,11 @@ export function OrgDetailsPanel({
               <div className="space-y-3">
                 <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                   <span className="text-muted-foreground">Группа обслуживания</span>
-                  <span className="font-medium text-foreground">{org.responsible_group || '—'}</span>
+                  <span className="font-medium text-foreground">{org.responsible_group || '-'}</span>
                 </div>
                 <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                   <span className="text-muted-foreground">Менеджер</span>
-                  <span className="font-medium text-foreground">{org.manager || '—'}</span>
+                  <span className="font-medium text-foreground">{org.manager || '-'}</span>
                 </div>
                 <div className="flex justify-between text-xs py-1.5 border-b border-border/30">
                   <span className="text-muted-foreground">Задолженность</span>
@@ -176,7 +176,7 @@ export function OrgDetailsPanel({
                   <span className="font-medium text-foreground tabular-nums">
                     {org.deposit_balance_minutes !== null && org.deposit_balance_minutes !== undefined
                       ? new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(org.deposit_balance_minutes)
-                      : '—'}
+                      : '-'}
                   </span>
                 </div>
                 {org.link_wiki && (

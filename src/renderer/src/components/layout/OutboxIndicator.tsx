@@ -15,7 +15,7 @@ export function OutboxIndicator() {
   const drop = useOutboxStore(store => store.drop)
   const openTab = useTabsStore(store => store.openTab)
 
-  // Заявка, открытая прямо сейчас, показывает ход отправки у себя в шапке —
+  // Заявка, открытая прямо сейчас, показывает ход отправки у себя в шапке -
   // вторая такая же плашка снизу была просто дублем.
   const openTicketId = useTabsStore(store => {
     const active = store.tabs.find(tab => tab.id === store.activeTabId)

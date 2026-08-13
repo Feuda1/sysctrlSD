@@ -2,7 +2,7 @@ import { decodeHtml, stripHtml } from './parse'
 
 /**
  * Разбор чек-листа заявки со страницы clients (/CheckList?id=...). Как и
- * остальной разбор — без Electron и состояния приложения, чтобы его можно было
+ * остальной разбор - без Electron и состояния приложения, чтобы его можно было
  * проверить тестами на настоящей разметке.
  */
 
@@ -11,7 +11,7 @@ export interface ChecklistItem {
   name: string
   description: string
   checked: boolean
-  /** Кто отметил — clients показывает это только у выполненных. */
+  /** Кто отметил - clients показывает это только у выполненных. */
   checkedBy: string
   /** Как отмечено на странице: «11.08.2026, 13:56.00». Своего формата у clients нет. */
   checkedAt: string
@@ -27,7 +27,7 @@ export interface ChecklistGroup {
 
 /**
  * Переносы строк clients хранит тегом <br>, а обычная чистка разметки схлопнула
- * бы их в пробел — многострочное описание превращалось в кашу.
+ * бы их в пробел - многострочное описание превращалось в кашу.
  */
 function multilineText(value: string): string {
   return value
@@ -57,7 +57,7 @@ function parseItem(row: string): ChecklistItem | null {
   const category = decodeHtml(icon.match(/toggleCheckboxText\(\s*\d+\s*,\s*'([^']*)'/)?.[1] ?? '')
 
   const userBlock = row.match(new RegExp(`id="checkListUser-${id}"[^>]*>([\\s\\S]*?)</div>`, 'i'))?.[1] ?? ''
-  // Внутри — имя, <br /> и дата. Разделитель тегом, поэтому текст берётся частями.
+  // Внутри - имя, <br /> и дата. Разделитель тегом, поэтому текст берётся частями.
   const userParts = stripHtml(userBlock.replace(/<br\s*\/?>/gi, '\n'))
     .split('\n')
     .map(part => part.trim())

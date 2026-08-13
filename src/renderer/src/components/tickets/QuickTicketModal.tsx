@@ -788,7 +788,7 @@ export function QuickTicketModal() {
     // carries no ticket id, which used to surface as an unrelated "не удалось
     // определить номер" error.
     if (!createTicketModalClient) {
-      setCreateTicketError('Выберите клиента — без него заявка не создаётся')
+      setCreateTicketError('Выберите клиента - без него заявка не создаётся')
       return
     }
     setCreateTicketLoading(true)
@@ -833,7 +833,7 @@ export function QuickTicketModal() {
 
   const handleCloseTicket = async () => {
     if (!createTicketModalClient) {
-      setCreateTicketError('Выберите клиента — без него заявка не создаётся')
+      setCreateTicketError('Выберите клиента - без него заявка не создаётся')
       return
     }
     if (!createTicketTitle.trim() || !createTicketBody.trim()) {

@@ -11,7 +11,7 @@ describe('backoffInterval', () => {
     expect(backoffInterval(2)).toBe(POLL_BASE_MS * 4)
   })
 
-  it('дальше минуты не отступает — иначе не заметит, что сервер ожил', () => {
+  it('дальше минуты не отступает - иначе не заметит, что сервер ожил', () => {
     expect(backoffInterval(10)).toBe(POLL_MAX_MS)
     expect(backoffInterval(1000)).toBe(POLL_MAX_MS)
   })
