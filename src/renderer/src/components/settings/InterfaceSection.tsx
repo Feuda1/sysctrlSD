@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { useUIStore } from '@/store/ui'
+import { resolveScrollDownSide, useUIStore } from '@/store/ui'
 import { useNotificationsStore } from '@/store/notifications'
 import { SegmentControl, SettingRow, Switch } from './SettingsControls'
 
@@ -186,7 +186,7 @@ export function OpenCreatedTicketSettings() {
     <div className="space-y-3">
       <div>
         <p className="text-sm font-medium text-foreground">После создания заявки</p>
-        <p className="text-xs text-muted-foreground">Открывать ли только что созданную заявку — быструю, по звонку или вложенную</p>
+        <p className="text-xs text-muted-foreground">Открывать ли только что созданную заявку - быструю, по звонку или вложенную</p>
       </div>
 
       <SegmentControl
@@ -196,6 +196,30 @@ export function OpenCreatedTicketSettings() {
           { value: 'stay', label: 'Не переходить' }
         ]}
         onChange={(value) => setOpenCreatedTicket(value === 'open')}
+      />
+    </div>
+  )
+}
+
+export function TabOpeningSettings() {
+  const { openTabInBackground, setOpenTabInBackground } = useUIStore()
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">Открытие вкладок</p>
+        <p className="text-xs text-muted-foreground">
+          Что делать по правой кнопке - «Открыть в новой вкладке»
+        </p>
+      </div>
+
+      <SegmentControl
+        value={openTabInBackground ? 'background' : 'switch'}
+        options={[
+          { value: 'switch', label: 'Переходить на новую вкладку' },
+          { value: 'background', label: 'Открывать в фоне' }
+        ]}
+        onChange={(value) => setOpenTabInBackground(value === 'background')}
       />
     </div>
   )
@@ -228,13 +252,148 @@ export function SendSuggestionSettings() {
 }
 
 export function ScrollDownArrowSettings() {
-  const { hideScrollDownArrow, setHideScrollDownArrow } = useUIStore()
+  const { hideScrollDownArrow, setHideScrollDownArrow, scrollDownSide, setScrollDownSide } = useUIStore()
 
   return (
-    <SettingRow
-      title="Скрывать стрелку прокрутки вниз"
-      description="Кнопка быстрой прокрутки к последним сообщениям в заявке"
-      control={<Switch checked={hideScrollDownArrow} onChange={setHideScrollDownArrow} />}
-    />
+    <div className="space-y-3">
+      <SettingRow
+        title="Скрывать стрелку прокрутки вниз"
+        description="Кнопка быстрой прокрутки к последним сообщениям в заявке"
+        control={<Switch checked={hideScrollDownArrow} onChange={setHideScrollDownArrow} />}
+      />
+
+      {!hideScrollDownArrow && (
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <p className="text-xs font-semibold text-muted-foreground">Угол кнопки</p>
+          <div className="w-72 shrink-0">
+            <SegmentControl
+              value={scrollDownSide}
+              options={[
+                { value: 'auto', label: 'Автоматически' },
+                { value: 'left', label: 'Слева' },
+                { value: 'right', label: 'Справа' }
+              ]}
+              onChange={setScrollDownSide}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Miniature of the whole window: nav rail, content column, panel, button. */
+function LayoutPreview({ panelOnLeft, arrowOnLeft, showArrow, railOnRight }: {
+  panelOnLeft: boolean
+  arrowOnLeft: boolean
+  showArrow: boolean
+  railOnRight: boolean
+}) {
+  const content = (
+    <div key="content" className="flex-[3] rounded-lg border border-border bg-muted/25 p-2 flex flex-col gap-1.5">
+      <div className="h-2 w-1/3 rounded-full bg-primary/50" />
+      <div className="h-1.5 w-full rounded-full bg-foreground/15" />
+      <div className="h-1.5 w-4/5 rounded-full bg-foreground/15" />
+      <div className="mt-auto flex flex-col gap-1 pt-2">
+        <div className="h-4 w-3/5 self-start rounded-md border border-border bg-card" />
+        <div className="h-4 w-3/5 self-end rounded-md border border-primary/30 bg-primary/10" />
+      </div>
+    </div>
+  )
+  const panel = (
+    <div key="panel" className="flex-1 rounded-lg border border-border bg-card p-2 flex flex-col gap-1.5">
+      <div className="h-2 w-4/5 rounded-full bg-muted-foreground/40" />
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="h-3.5 w-full rounded-md border border-border bg-muted/30" />
+      ))}
+    </div>
+  )
+
+  const rail = (
+    <div key="rail" className="flex w-5 shrink-0 flex-col items-center gap-1 rounded-lg border border-border bg-sidebar py-2">
+      <div className="h-2 w-2 rounded-sm bg-emerald-500/60" />
+      <div className="h-2 w-2 rounded-sm bg-primary/70" />
+      <div className="h-2 w-2 rounded-sm bg-foreground/20" />
+      <div className="h-2 w-2 rounded-sm bg-foreground/20" />
+    </div>
+  )
+
+  return (
+    <div className="relative flex h-32 gap-2 rounded-xl border border-border bg-background/40 p-2">
+      {!railOnRight && rail}
+      {panelOnLeft ? [panel, content] : [content, panel]}
+      {railOnRight && rail}
+      {showArrow && (
+        <div className={cn(
+          "absolute bottom-3 flex h-5 w-5 items-center justify-center rounded-full border border-primary/40 bg-card text-primary shadow",
+          // Кнопка обходит панель навигации ровно так же, как в самом окне.
+          arrowOnLeft
+            ? (railOnRight ? "left-3" : "left-9")
+            : (railOnRight ? "right-9" : "right-3")
+        )}>
+          <span className="text-[10px] leading-none">↓</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function TicketLayoutSettings() {
+  const {
+    sidebarSide, setSidebarSide,
+    ticketPanelSide, setTicketPanelSide,
+    scrollDownSide, hideScrollDownArrow
+  } = useUIStore()
+  const arrowOnLeft = resolveScrollDownSide(scrollDownSide, ticketPanelSide) === 'left'
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-medium text-foreground">Расположение блоков</p>
+        <p className="text-xs text-muted-foreground">С какой стороны держать панель навигации и параметры заявки</p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold text-muted-foreground">Панель навигации</p>
+          <div className="w-52 shrink-0">
+            <SegmentControl
+              value={sidebarSide}
+              options={[
+                { value: 'left', label: 'Слева' },
+                { value: 'right', label: 'Справа' }
+              ]}
+              onChange={setSidebarSide}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold text-muted-foreground">Параметры заявки</p>
+          <div className="w-52 shrink-0">
+            <SegmentControl
+              value={ticketPanelSide}
+              options={[
+                { value: 'left', label: 'Слева' },
+                { value: 'right', label: 'Справа' }
+              ]}
+              onChange={setTicketPanelSide}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-muted/20 p-4">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3 text-center">Предпросмотр</p>
+        <div className="pointer-events-none select-none">
+          <LayoutPreview
+            railOnRight={sidebarSide === 'right'}
+            panelOnLeft={ticketPanelSide === 'left'}
+            arrowOnLeft={arrowOnLeft}
+            showArrow={!hideScrollDownArrow}
+          />
+        </div>
+      </div>
+    </div>
   )
 }

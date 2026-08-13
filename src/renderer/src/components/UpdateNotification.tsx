@@ -1,10 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { Download, X, RefreshCw } from 'lucide-react'
 import { useUIStore } from '@/store/ui'
+import { cn } from '@/lib/utils'
 
 /**
  * Custom in-app update prompt (not an OS notification). Appears bottom-right when
- * a new version has been downloaded and is ready to install. "Позже" hides it —
+ * a new version has been downloaded and is ready to install. "Позже" hides it -
  * the user can still install from Настройки → Обновления.
  */
 export function UpdateNotification() {
@@ -12,6 +13,7 @@ export function UpdateNotification() {
   const dismissed = useUIStore((s) => s.updateDismissed)
   const installUpdate = useUIStore((s) => s.installUpdate)
   const dismissUpdate = useUIStore((s) => s.dismissUpdate)
+  const sidebarSide = useUIStore((s) => s.sidebarSide)
 
   const show = update.status === 'downloaded' && !dismissed
 
@@ -23,7 +25,10 @@ export function UpdateNotification() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.96 }}
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          className="fixed bottom-4 right-4 z-[200] w-80 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+          className={cn(
+            'fixed bottom-4 z-[200] w-80 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl',
+            sidebarSide === 'right' ? 'right-[72px]' : 'right-4'
+          )}
         >
           <div className="flex items-start gap-3 p-4">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-400 text-primary-foreground shadow-md">

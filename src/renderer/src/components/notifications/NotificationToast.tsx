@@ -2,6 +2,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Bell } from 'lucide-react'
 import { useNotificationsStore } from '@/store/notifications'
 import { useTabsStore } from '@/store/tabs'
+import { useUIStore } from '@/store/ui'
+import { cn } from '@/lib/utils'
 
 export function NotificationToast() {
   const toasts = useNotificationsStore((s) => s.toasts)
@@ -12,6 +14,7 @@ export function NotificationToast() {
   const markAsRead = useNotificationsStore((s) => s.markAsRead)
   const tabs = useTabsStore((s) => s.tabs)
   const setActive = useTabsStore((s) => s.setActive)
+  const sidebarSide = useUIStore((s) => s.sidebarSide)
 
   const handleToastClick = (ticketId: number, id: string) => {
     const targetPath = `/dashboard/tickets/${ticketId}`
@@ -31,7 +34,11 @@ export function NotificationToast() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 w-80 pointer-events-none">
+    <div className={cn(
+      'fixed bottom-4 z-[9999] flex flex-col gap-2 w-80 pointer-events-none',
+      // Уступаем боковой панели, когда она стоит справа.
+      sidebarSide === 'right' ? 'right-[72px]' : 'right-4'
+    )}>
       <AnimatePresence>
         {toasts.map((toast) => (
           <motion.div

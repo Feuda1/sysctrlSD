@@ -58,8 +58,19 @@ function getColumnWidth(column: ColumnDef<Ticket>): number {
 }
 
 function truncateText(value: string | null | undefined, maxLength: number): string {
-  const text = value?.trim() || '—'
+  const text = value?.trim() || ''
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text
+}
+
+/**
+ * Прочерк на месте пустого значения - по центру колонки.
+ *
+ * Прижатый влево, он вставал в один ряд с текстом соседних строк и читался как
+ * ещё одно значение. По центру пустые ячейки складываются в спокойный столбик,
+ * который взгляд проходит мимо, - а именно это от них и требуется.
+ */
+function EmptyCell() {
+  return <span className="block text-center text-xs text-muted-foreground">-</span>
 }
 
 
@@ -78,7 +89,7 @@ function StateBadge({ name, color }: { name: string; color?: string }) {
       style={style}
       title={name}
     >
-      {name || '—'}
+      {name || '-'}
     </span>
   )
 }
@@ -162,7 +173,7 @@ const columns: ColumnDef<Ticket>[] = [
         <BusyDot ticketId={row.original.id} />
         <span
           className="block truncate font-mono text-[11px] text-muted-foreground tabular-nums whitespace-nowrap"
-          title={`Clients #: ${row.original.clientNumber || 'не найден'} | Zammad id: ${row.original.id} | Zammad #: ${row.original.number || '—'}`}
+          title={`Clients #: ${row.original.clientNumber || 'не найден'} | Zammad id: ${row.original.id} | Zammad #: ${row.original.number || '-'}`}
         >
           {row.original.clientNumber || row.original.id}
         </span>
@@ -212,15 +223,19 @@ const columns: ColumnDef<Ticket>[] = [
     size: 140,
     enableSorting: true,
     cell: ({ row }) => (
-      <span
-        className={cn(
-          'inline-flex max-w-full items-center overflow-hidden text-ellipsis rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap',
-          getTicketTypeBadgeClass(row.original.ticketType?.id, row.original.ticketType?.name)
-        )}
-        title={row.original.ticketType?.id || row.original.ticketType?.name || undefined}
-      >
-        {row.original.ticketType?.name || '—'}
-      </span>
+      row.original.ticketType?.name
+        ? (
+          <span
+            className={cn(
+              'inline-flex max-w-full items-center overflow-hidden text-ellipsis rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap',
+              getTicketTypeBadgeClass(row.original.ticketType?.id, row.original.ticketType?.name)
+            )}
+            title={row.original.ticketType?.id || row.original.ticketType?.name || undefined}
+          >
+            {row.original.ticketType.name}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -230,9 +245,13 @@ const columns: ColumnDef<Ticket>[] = [
     size: 200,
     enableSorting: true,
     cell: ({ row }) => (
-      <span className="block max-h-12 overflow-hidden text-xs leading-4 text-muted-foreground whitespace-normal break-words" title={row.original.organization.name}>
-        {truncateText(row.original.organization.name, 90)}
-      </span>
+      row.original.organization.name?.trim()
+        ? (
+          <span className="block max-h-12 overflow-hidden text-xs leading-4 text-muted-foreground whitespace-normal break-words" title={row.original.organization.name}>
+            {truncateText(row.original.organization.name, 90)}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -244,7 +263,7 @@ const columns: ColumnDef<Ticket>[] = [
     cell: ({ row }) => {
       const reasons = row.original.iikoReasons ?? []
       if (reasons.length === 0) {
-        return <span className="text-xs text-muted-foreground">—</span>
+        return <EmptyCell />
       }
       return (
         <div className="flex max-h-12 flex-wrap gap-1 overflow-hidden">
@@ -270,7 +289,7 @@ const columns: ColumnDef<Ticket>[] = [
     cell: ({ row }) => {
       const tags = row.original.tags ?? []
       if (tags.length === 0) {
-        return <span className="text-xs text-muted-foreground">—</span>
+        return <EmptyCell />
       }
       return (
         <div className="flex max-h-12 flex-wrap gap-1 overflow-hidden">
@@ -294,9 +313,13 @@ const columns: ColumnDef<Ticket>[] = [
     size: 150,
     enableSorting: true,
     cell: ({ row }) => (
-      <span className="text-xs text-muted-foreground block truncate" title={row.original.group.name}>
-        {row.original.group.name || '—'}
-      </span>
+      row.original.group.name
+        ? (
+          <span className="text-xs text-muted-foreground block truncate" title={row.original.group.name}>
+            {row.original.group.name}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -306,9 +329,13 @@ const columns: ColumnDef<Ticket>[] = [
     size: 160,
     enableSorting: true,
     cell: ({ row }) => (
-      <span className="text-xs text-muted-foreground block truncate" title={row.original.owner.name}>
-        {row.original.owner.name || '—'}
-      </span>
+      row.original.owner.name
+        ? (
+          <span className="text-xs text-muted-foreground block truncate" title={row.original.owner.name}>
+            {row.original.owner.name}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -342,9 +369,13 @@ const columns: ColumnDef<Ticket>[] = [
     size: 140,
     enableSorting: true,
     cell: ({ row }) => (
-      <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
-        {formatTicketDate(row.original.closedAt || '')}
-      </span>
+      row.original.closedAt
+        ? (
+          <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
+            {formatTicketDate(row.original.closedAt)}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -354,9 +385,13 @@ const columns: ColumnDef<Ticket>[] = [
     size: 140,
     enableSorting: true,
     cell: ({ row }) => (
-      <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
-        {formatTicketDate(row.original.pendingTime || '')}
-      </span>
+      row.original.pendingTime
+        ? (
+          <span className="block text-xs leading-4 text-muted-foreground tabular-nums whitespace-normal">
+            {formatTicketDate(row.original.pendingTime)}
+          </span>
+        )
+        : <EmptyCell />
     )
   },
   {
@@ -367,9 +402,10 @@ const columns: ColumnDef<Ticket>[] = [
     enableSorting: true,
     cell: ({ row }) => {
       const val = row.original.score
+      if (val === null || val === undefined) return <EmptyCell />
       return (
         <span className="text-xs font-semibold text-muted-foreground tabular-nums">
-          {val !== null && val !== undefined ? formatScore(val) : '—'}
+          {formatScore(val)}
         </span>
       )
     }
@@ -551,7 +587,7 @@ export function TicketTable({
       {!isLoading && total > 0 && (
         <div className="flex items-center justify-between shrink-0 px-1">
           <span className="text-xs text-muted-foreground tabular-nums">
-            {firstRow}–{lastRow} из {total}
+            {firstRow}-{lastRow} из {total}
           </span>
           <div className="flex items-center gap-1.5">
             <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="h-8 gap-1 px-2.5 text-xs">

@@ -36,6 +36,7 @@ export function TabBar() {
   const moveTab = useTabsStore(s => s.moveTab)
 
   const user = useAuthStore(s => s.user)
+  const sidebarSide = useUIStore(s => s.sidebarSide)
   const installUpdate = useUIStore(s => s.installUpdate)
   const updateReady = useUIStore(s => s.update.status === 'downloaded')
 
@@ -168,7 +169,7 @@ export function TabBar() {
           )}
         </div>
 
-        {/* Tabs — shrink to fit instead of overflowing; empty area stays draggable */}
+        {/* Tabs - shrink to fit instead of overflowing; empty area stays draggable */}
         <div
           className="flex min-w-0 flex-1 items-center gap-1"
           onDragOver={(e) => { if (draggingId.current) e.preventDefault() }}
@@ -343,8 +344,14 @@ export function TabBar() {
         {/* Место под кнопки окна. Само по себе пустое, но помечено no-drag: без
             этого весь верх остаётся областью перетаскивания, нажатие на кнопку
             начинает системное перемещение окна, и «свернуть» с «развернуть»
-            теряются внутри него — доходит только закрытие. */}
-        <div className="no-drag h-full w-[142px] shrink-0" aria-hidden />
+            теряются внутри него - доходит только закрытие. */}
+        {/* Кнопки окна прижаты к краю окна, а не к краю панели вкладок: когда
+            боковая панель справа, её 56px уже лежат под ними, и резервировать
+            эту часть второй раз не нужно. */}
+        <div
+          className={cn('no-drag h-full shrink-0', sidebarSide === 'right' ? 'w-[86px]' : 'w-[142px]')}
+          aria-hidden
+        />
       </div>
     </TooltipProvider>
   )

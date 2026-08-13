@@ -13,7 +13,9 @@ import {
   OpenCreatedTicketSettings,
   ScrollDownArrowSettings,
   SendSuggestionSettings,
+  TabOpeningSettings,
   ThemeToggle,
+  TicketLayoutSettings,
   TraySettings
 } from '@/components/settings/InterfaceSection'
 import { NotificationSettingsSection } from '@/components/settings/NotificationsSection'
@@ -136,7 +138,11 @@ export default function SettingsPage() {
                     <div className="h-px bg-border/40" />
                     <OpenCreatedTicketSettings />
                     <div className="h-px bg-border/40" />
+                    <TabOpeningSettings />
+                    <div className="h-px bg-border/40" />
                     <SendSuggestionSettings />
+                    <div className="h-px bg-border/40" />
+                    <TicketLayoutSettings />
                     <div className="h-px bg-border/40" />
                     <ScrollDownArrowSettings />
                   </div>

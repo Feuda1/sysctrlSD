@@ -15,9 +15,19 @@ function getStoredScoreOverride(): boolean {
 }
 const AFTER_COMMENT_SUBMIT_KEY = 'ui.afterCommentSubmitAction'
 const HIDE_SCROLL_DOWN_ARROW_KEY = 'ui.hideScrollDownArrow'
+const SIDEBAR_SIDE_KEY = 'ui.sidebarSide'
+const TICKET_PANEL_SIDE_KEY = 'ui.ticketPanelSide'
+const SCROLL_DOWN_SIDE_KEY = 'ui.scrollDownSide'
 const OPEN_CREATED_TICKET_KEY = 'ui.openCreatedTicket'
+const OPEN_TAB_IN_BACKGROUND_KEY = 'ui.openTabInBackground'
 const SUGGEST_STATE_KEY = 'ui.suggestStateOnSend'
 const SUGGEST_REASON_KEY = 'ui.suggestReasonOnSend'
+
+// По умолчанию выключено: «открыть в новой вкладке» до сих пор сразу
+// переключало на неё, и менять это без спроса значит ломать привычку.
+function getStoredOpenTabInBackground(): boolean {
+  return window.localStorage.getItem(OPEN_TAB_IN_BACKGROUND_KEY) === '1'
+}
 
 // Both suggestions are on by default: they only appear when something is
 // actually missing, so they cost nothing until they are useful.
@@ -44,12 +54,38 @@ function getStoredHideScrollDownArrow(): boolean {
   return window.localStorage.getItem(HIDE_SCROLL_DOWN_ARROW_KEY) === '1'
 }
 
+function getStoredSidebarSide(): SidebarSide {
+  return window.localStorage.getItem(SIDEBAR_SIDE_KEY) === 'right' ? 'right' : 'left'
+}
+
+function getStoredTicketPanelSide(): TicketPanelSide {
+  return window.localStorage.getItem(TICKET_PANEL_SIDE_KEY) === 'left' ? 'left' : 'right'
+}
+
+function getStoredScrollDownSide(): ScrollDownSide {
+  const stored = window.localStorage.getItem(SCROLL_DOWN_SIDE_KEY)
+  return stored === 'left' || stored === 'right' ? stored : 'auto'
+}
+
 function getStoredChatStyle(): 'modern' | 'classic' {
   const stored = window.localStorage.getItem(CHAT_STYLE_STORAGE_KEY)
   return stored === 'classic' ? 'classic' : 'modern'
 }
 
 type BubbleSide = 'client-right' | 'client-left'
+
+/** Which edge of the window the navigation rail is docked to. */
+export type SidebarSide = 'left' | 'right'
+/** Which side of the ticket screen holds the "Параметры заявки" column. */
+export type TicketPanelSide = 'right' | 'left'
+/** Corner of the scroll-to-bottom button; 'auto' keeps it away from the panel. */
+export type ScrollDownSide = 'auto' | 'left' | 'right'
+
+/** Resolves 'auto' against the panel side, so the two never end up stacked. */
+export function resolveScrollDownSide(side: ScrollDownSide, panelSide: TicketPanelSide): 'left' | 'right' {
+  if (side !== 'auto') return side
+  return panelSide === 'left' ? 'right' : 'left'
+}
 
 function getStoredBubbleSide(): BubbleSide {
   return window.localStorage.getItem(BUBBLE_SIDE_STORAGE_KEY) === 'client-left' ? 'client-left' : 'client-right'
@@ -118,8 +154,20 @@ interface UIState {
   setAfterCommentSubmitAction: (action: 'stay' | 'close') => void
   hideScrollDownArrow: boolean
   setHideScrollDownArrow: (hide: boolean) => void
+  /** Edge the navigation rail is docked to. */
+  sidebarSide: SidebarSide
+  setSidebarSide: (side: SidebarSide) => void
+  /** Side of the ticket screen the parameters panel sits on. */
+  ticketPanelSide: TicketPanelSide
+  setTicketPanelSide: (side: TicketPanelSide) => void
+  /** Corner of the scroll-to-bottom button inside a ticket. */
+  scrollDownSide: ScrollDownSide
+  setScrollDownSide: (side: ScrollDownSide) => void
   openCreatedTicket: boolean
   setOpenCreatedTicket: (open: boolean) => void
+  /** Открывать вкладку из контекстного меню в фоне, не переключаясь на неё. */
+  openTabInBackground: boolean
+  setOpenTabInBackground: (enabled: boolean) => void
   /** Offer the ticket state in the send dialog when it was not changed. */
   suggestStateOnSend: boolean
   setSuggestStateOnSend: (enabled: boolean) => void
@@ -137,7 +185,11 @@ export const useUIStore = create<UIState>((set) => ({
   allowScoreWithoutClientsRight: getStoredScoreOverride(),
   afterCommentSubmitAction: getStoredAfterCommentSubmitAction(),
   hideScrollDownArrow: getStoredHideScrollDownArrow(),
+  sidebarSide: getStoredSidebarSide(),
+  ticketPanelSide: getStoredTicketPanelSide(),
+  scrollDownSide: getStoredScrollDownSide(),
   openCreatedTicket: getStoredOpenCreatedTicket(),
+  openTabInBackground: getStoredOpenTabInBackground(),
   suggestStateOnSend: getStoredSuggestState(),
   suggestReasonOnSend: getStoredSuggestReason(),
   isQuickTicketOpen: false,
@@ -210,6 +262,26 @@ export const useUIStore = create<UIState>((set) => ({
   setHideScrollDownArrow: (hide) => {
     window.localStorage.setItem(HIDE_SCROLL_DOWN_ARROW_KEY, hide ? '1' : '0')
     set({ hideScrollDownArrow: hide })
+  },
+
+  setSidebarSide: (side) => {
+    window.localStorage.setItem(SIDEBAR_SIDE_KEY, side)
+    set({ sidebarSide: side })
+  },
+
+  setTicketPanelSide: (side) => {
+    window.localStorage.setItem(TICKET_PANEL_SIDE_KEY, side)
+    set({ ticketPanelSide: side })
+  },
+
+  setScrollDownSide: (side) => {
+    window.localStorage.setItem(SCROLL_DOWN_SIDE_KEY, side)
+    set({ scrollDownSide: side })
+  },
+
+  setOpenTabInBackground: (enabled) => {
+    window.localStorage.setItem(OPEN_TAB_IN_BACKGROUND_KEY, enabled ? '1' : '0')
+    set({ openTabInBackground: enabled })
   },
 
   setSuggestStateOnSend: (enabled) => {

@@ -13,12 +13,14 @@ import { queryClient } from '@/lib/queryClient'
 import { QuickTicketModal } from '@/components/tickets/QuickTicketModal'
 import { showContextMenu, separator } from '@/lib/contextMenu'
 import { ticketIdFromPath } from '@/lib/tabTitles'
+import { useUIStore } from '@/store/ui'
 
 export default function DashboardPage() {
   const status = useAuthStore((s) => s.status)
   const openTab = useTabsStore((s) => s.openTab)
   const navigateActive = useTabsStore((s) => s.navigateActive)
   const openInNewWindow = useTabsStore((s) => s.openInNewWindow)
+  const openTabInBackground = useUIStore((s) => s.openTabInBackground)
 
   useTicketFilters()
   useMyTicketsCounts()
@@ -71,7 +73,7 @@ export default function DashboardPage() {
 
   const showTargetContextMenu = async (e: React.MouseEvent) => {
     // An image carries its own menu (copy/save), built in the main process from
-    // what is painted under the cursor — never shadow it.
+    // what is painted under the cursor - never shadow it.
     if ((e.target as HTMLElement).tagName === 'IMG') return
 
     const el = (e.target as HTMLElement).closest('[data-tab-path]')
@@ -95,7 +97,9 @@ export default function DashboardPage() {
     ])
 
     if (picked === 'open') navigateActive(path)
-    else if (picked === 'new-tab') openTab(path)
+    // Настройкой можно оставаться на месте: вкладка открывается, но фокус с
+    // текущей заявки не уводит - так удобно набирать список и разбирать его потом.
+    else if (picked === 'new-tab') openTab(path, { background: openTabInBackground })
     else if (picked === 'new-window') openInNewWindow(path)
     else if (picked === 'copy-id' && ticketId) navigator.clipboard.writeText(ticketId)
     else if (picked === 'quick-action' && ticketId) {
