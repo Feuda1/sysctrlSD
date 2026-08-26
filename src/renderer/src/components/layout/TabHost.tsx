@@ -14,6 +14,7 @@ const OrganizationsPage = lazy(() => import('@/pages/OrganizationsPage'))
 const CallsPage = lazy(() => import('@/pages/CallsPage'))
 const FormsPage = lazy(() => import('@/pages/FormsPage'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
+const AdminPage = lazy(() => import('@/pages/AdminPage'))
 
 /** Pulls the neighbouring screens in once the first one is on screen, so opening
  * them later feels instant. */
@@ -54,6 +55,7 @@ function TabRoutes() {
       <Route path="/dashboard/calls" element={<CallsPage />} />
       <Route path="/dashboard/forms" element={<FormsPage />} />
       <Route path="/dashboard/settings" element={<SettingsPage />} />
+      <Route path="/dashboard/admin" element={<AdminPage />} />
       <Route path="*" element={<Navigate to="/dashboard/tickets" replace />} />
     </Routes>
     </Suspense>

@@ -26,6 +26,10 @@ interface AuthState {
   clearError: () => void
   setZammadToken: (token: string) => Promise<void>
   updateAvatar: (avatarDataUrl: string) => Promise<void>
+  /** Вызывается по событию `auth:forced-logout` из главного процесса - в
+   * отличие от обычного logout(), сюда уже не нужно звать `window.api.auth.logout()`:
+   * главный процесс сам стёр сохранённую сессию до того, как прислал событие. */
+  forceLogout: (reason: string) => void
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -93,5 +97,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   updateAvatar: async (avatarDataUrl: string) => {
     const user = await window.api.auth.updateAvatar(avatarDataUrl)
     set({ user, zammadTokenSet: true })
+  },
+
+  forceLogout: (reason: string) => {
+    set({ status: 'unauthenticated', user: null, zammadTokenSet: false, error: reason })
   }
 }))

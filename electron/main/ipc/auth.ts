@@ -1,4 +1,5 @@
 import { ipcMain, safeStorage, app, session, net } from 'electron'
+import { isBanned } from '../controlPlane'
 
 let _zammadTokenCache: string | null = null
 export function setZammadTokenCache(token: string) { _zammadTokenCache = token }
@@ -353,6 +354,18 @@ async function clearClientsCookies(): Promise<void> {
   await Promise.all(cookies.map(cookie => ses.cookies.remove(WRAPPER_BASE, cookie.name).catch(() => {})))
 }
 
+/**
+ * Тот же разлогин, что и по кнопке «Выйти», но вызываемый не только из
+ * рендерера. Нужен guard-серверу (`controlPlane.ts`): если человека забанили
+ * или кикнули, локальные учётные данные должны исчезнуть по-настоящему, иначе
+ * `auth:restore` при следующем запуске тихо зайдёт заново по сохранённому
+ * паролю.
+ */
+export async function forceLogout(): Promise<void> {
+  await clearClientsCookies()
+  writeStored({})
+}
+
 export async function loginWrapper(
   email: string,
   password: string,
@@ -682,6 +695,14 @@ export function setupAuthIpc(): void {
       if (zUser) finalUser = zUser
     }
 
+    // Проверяем бан здесь, а не только фоновым опросом - иначе забаненный
+    // человек мог просто ввести пароль заново и зайти, а выкинуло бы его лишь
+    // следующим тактом heartbeat, до 25 секунд спустя.
+    if (await isBanned(finalUser)) {
+      await forceLogout()
+      throw new Error('Доступ отключён администратором.')
+    }
+
     writeStored({
       ...stored,
       userJson: JSON.stringify(finalUser),
@@ -719,12 +740,18 @@ export function setupAuthIpc(): void {
       }
     }
 
+    // Тот, кого забанили, пока приложение было закрыто, не должен тихо зайти
+    // обратно по сохранённому паролю.
+    if (await isBanned(user)) {
+      await forceLogout()
+      return null
+    }
+
     return { user, zammadTokenSet: !!stored.zammadToken }
   })
 
   ipcMain.handle('auth:logout', async () => {
-    await clearClientsCookies()
-    writeStored({})
+    await forceLogout()
     logger.info('Logged out')
   })
 

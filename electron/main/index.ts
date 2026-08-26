@@ -4,6 +4,8 @@ import { setupUpdater, quitAndInstallUpdate } from './updater'
 import { setupAuthIpc } from './ipc/auth'
 import { setupTicketsIpc, readNotificationSettings } from './ipc/tickets'
 import { setupFormsIpc } from './ipc/forms'
+import { setupAdminIpc } from './ipc/admin'
+import { startControlPlaneHeartbeat } from './controlPlane'
 import log from 'electron-log/main'
 
 log.initialize({ preload: false })
@@ -492,6 +494,8 @@ app.whenReady().then(() => {
   setupAuthIpc()
   setupTicketsIpc()
   setupFormsIpc()
+  setupAdminIpc()
+  startControlPlaneHeartbeat()
   mainWindow = createWindow()
   setupUpdater(mainWindow)
   setupTray()

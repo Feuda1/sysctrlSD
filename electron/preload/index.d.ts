@@ -1,4 +1,4 @@
-import { AppUser, AuthResult, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup, CallRecord, CallSectionKey } from './index'
+import { AppUser, AuthResult, AdminUserRow, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup, CallRecord, CallSectionKey } from './index'
 
 declare global {
   interface Window {
@@ -12,6 +12,7 @@ declare global {
         getClientProfileSettings: () => Promise<ClientProfileSettings>
         updateClientProfileSettings: (patch: ClientProfileSettingsPatch) => Promise<ClientProfileSettings>
         hasZammadToken: () => Promise<boolean>
+        onForcedLogout: (callback: (reason: string) => void) => () => void
       }
       window: {
         minimize: () => Promise<void>
@@ -189,6 +190,12 @@ declare global {
       }
       navigation: {
         onGoToTab: (callback: (path: string) => void) => () => void
+      }
+      admin: {
+        getUsers: () => Promise<AdminUserRow[]>
+        ban: (userId: string | number) => Promise<void>
+        unban: (userId: string | number) => Promise<void>
+        kick: (userId: string | number) => Promise<void>
       }
     }
   }

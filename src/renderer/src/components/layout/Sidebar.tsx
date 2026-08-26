@@ -1,8 +1,10 @@
-import { Ticket, Phone, Building2, FileText, Plus } from 'lucide-react'
+import { Ticket, Phone, Building2, FileText, Plus, ShieldAlert } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useTabsStore } from '@/store/tabs'
 import { useUIStore } from '@/store/ui'
+import { useAuthStore } from '@/store/auth'
+import { isAdminUser } from '@/lib/admin'
 
 const formItems = [
   { to: '/dashboard/forms', label: 'Формы', icon: FileText, tooltip: 'Переводы, Внедрение…' }
@@ -58,6 +60,7 @@ export function Sidebar() {
   const setQuickTicketOpen = useUIStore(s => s.setQuickTicketOpen)
   const sidebarSide = useUIStore(s => s.sidebarSide)
   const onRight = sidebarSide === 'right'
+  const isAdmin = useAuthStore(s => isAdminUser(s.user?.id))
 
   return (
     <TooltipProvider delayDuration={180}>
@@ -110,6 +113,13 @@ export function Sidebar() {
           {formItems.map((item) => (
             <SidebarNavItem key={item.to} {...item} />
           ))}
+
+          {isAdmin && (
+            <>
+              <div className="my-2 h-px bg-sidebar-border/50" />
+              <SidebarNavItem to="/dashboard/admin" label="Админ" icon={ShieldAlert} tooltip="Кто онлайн, бан/кик" />
+            </>
+          )}
         </nav>
       </aside>
     </TooltipProvider>

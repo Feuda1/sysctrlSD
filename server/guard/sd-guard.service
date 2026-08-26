@@ -1,0 +1,19 @@
+[Unit]
+Description=sd-guard - online status + ban/kick for sysctrlSD
+After=network.target
+
+[Service]
+Type=simple
+User=sdguard
+Group=sdguard
+WorkingDirectory=/opt/sd-guard
+ExecStart=/usr/bin/node /opt/sd-guard/server.js
+Restart=always
+RestartSec=2
+EnvironmentFile=/opt/sd-guard/.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/sd-guard/data
+
+[Install]
+WantedBy=multi-user.target

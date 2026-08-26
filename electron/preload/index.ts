@@ -15,6 +15,15 @@ export type AuthResult = {
   zammadTokenSet: boolean
 }
 
+export type AdminUserRow = {
+  id: string
+  email: string
+  name: string
+  lastSeen: number | null
+  online: boolean
+  banned: boolean
+}
+
 export type ClientProfileSettings = {
   zammadApiKey: string
   internalPhone: string
@@ -171,7 +180,12 @@ const api = {
     updateClientProfileSettings: (patch: ClientProfileSettingsPatch): Promise<ClientProfileSettings> =>
       invoke('auth:updateClientProfileSettings', patch),
     hasZammadToken: (): Promise<boolean> =>
-      invoke('auth:hasZammadToken')
+      invoke('auth:hasZammadToken'),
+    onForcedLogout: (callback: (reason: string) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, reason: string) => callback(reason)
+      ipcRenderer.on('auth:forced-logout', handler)
+      return () => { ipcRenderer.removeListener('auth:forced-logout', handler) }
+    }
   },
   window: {
     minimize: (): Promise<void> => invoke('window:minimize'),
@@ -427,6 +441,12 @@ const api = {
       ipcRenderer.on('navigation:go-to-tab', handler)
       return () => { ipcRenderer.removeListener('navigation:go-to-tab', handler) }
     }
+  },
+  admin: {
+    getUsers: (): Promise<AdminUserRow[]> => invoke('admin:getUsers'),
+    ban: (userId: string | number): Promise<void> => invoke('admin:ban', userId),
+    unban: (userId: string | number): Promise<void> => invoke('admin:unban', userId),
+    kick: (userId: string | number): Promise<void> => invoke('admin:kick', userId)
   }
 }
 

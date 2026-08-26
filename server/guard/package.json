@@ -1,0 +1,13 @@
+{
+  "name": "sd-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Online-presence + forced ban/kick companion service for the sysctrlSD desktop app.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

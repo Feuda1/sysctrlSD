@@ -93,6 +93,9 @@ export default function App() {
   }, [status, initNotifications])
 
   useEffect(() => {
+    const unsubForcedLogout = window.api.auth.onForcedLogout((reason) => {
+      useAuthStore.getState().forceLogout(reason)
+    })
     const unsubTicket = window.api.tickets.onTicketUpdated((ticketId) => {
       queryClient.invalidateQueries({ queryKey: ['ticket-details', ticketId] })
     })
@@ -115,6 +118,7 @@ export default function App() {
     })
 
     return () => {
+      unsubForcedLogout()
       unsubTicket()
       unsubArticles()
       unsubList()
