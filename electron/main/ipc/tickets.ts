@@ -137,7 +137,48 @@ async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
  */
 const ZAMMAD_TIMEOUT_MS = 60_000
 
+/**
+ * Счётчик запросов к Zammad за текущую минуту.
+ *
+ * Именно это спрашивал директор: сколько запросов вообще уходит с одного
+ * рабочего места. Раньше ответить можно было только прикидкой по коду - как в
+ * переписке, где посчитали руками и ошиблись на порядок. Теперь число видно в
+ * логе каждую минуту, а если оно вдруг подскочит - например, из-за будущего
+ * бага вроде отсутствовавшего экспорта `TICKET_IDLE_POLL_MS`, который на время
+ * вернул бы старый опрос раз в пять секунд, - предупреждение попадёт в лог
+ * раньше, чем об этом снова скажет сервер, упав.
+ */
+let zammadRequestsThisMinute = 0
+let zammadRequestMeterStarted = false
+
+/**
+ * Порог для предупреждения, не для остановки.
+ *
+ * После всех правок нормальная нагрузка с одного рабочего места - это опрос
+ * изменений (раз в 7 секунд, ~9 запросов в минуту) плюс редкие списки и
+ * подгрузки. С запасом на несколько открытых заявок и активную работу со
+ * списками это заведомо меньше сотни в минуту. Втрое больше - уже не
+ * "активно работает", а похоже на зацикленный опрос.
+ */
+const ZAMMAD_REQUEST_WARN_PER_MINUTE = 100
+
+function startZammadRequestMeter(): void {
+  if (zammadRequestMeterStarted) return
+  zammadRequestMeterStarted = true
+  setInterval(() => {
+    const count = zammadRequestsThisMinute
+    zammadRequestsThisMinute = 0
+    if (count === 0) return
+    if (count > ZAMMAD_REQUEST_WARN_PER_MINUTE) {
+      logger.warn(`[Zammad] ${count} запросов за последнюю минуту - подозрительно много, похоже на зацикленный опрос`)
+    } else {
+      logger.info(`[Zammad] запросов за последнюю минуту: ${count}`)
+    }
+  }, 60_000)
+}
+
 async function zammadFetch(url: string | URL, options: any = {}) {
+  zammadRequestsThisMinute += 1
   const ses = session.fromPartition('zammad-api')
   const { timeoutMs, ...rest } = options
   const auth = String(rest?.headers?.Authorization ?? '')
@@ -794,6 +835,16 @@ interface Meta {
   states: Record<number, string>
   priorities: Record<number, string>
   groups: Record<number, string>
+  /**
+   * Названия организаций по идентификатору.
+   *
+   * Появился, чтобы перестать просить у Zammad `expand=true`. Раньше название
+   * организации приходило строкой внутри каждой заявки - удобно, но за это
+   * сервер платил подъёмом связей для каждой найденной заявки. Теперь имена
+   * запоминаются из `assets` (там каждая организация приходит один раз) и живут
+   * до перезапуска: они меняются куда реже, чем мы читаем списки.
+   */
+  organizations: Record<number, string>
   ticketTypes: Record<string, string>
   iikoReasons: Record<string, string>
   iikoReasonField: string
@@ -809,7 +860,7 @@ interface Meta {
   userAvatars: Record<number, string | null>
 }
 
-const meta: Meta = { states: {}, priorities: {}, groups: {}, ticketTypes: {}, iikoReasons: {}, iikoReasonField: 'ticket_reason', tags: {}, users: {}, usersLoaded: {}, agents: {}, usersActive: {}, userLogins: {}, userImages: {}, userAvatars: {} }
+const meta: Meta = { states: {}, priorities: {}, groups: {}, organizations: {}, ticketTypes: {}, iikoReasons: {}, iikoReasonField: 'ticket_reason', tags: {}, users: {}, usersLoaded: {}, agents: {}, usersActive: {}, userLogins: {}, userImages: {}, userAvatars: {} }
 let metaLoaded = false
 let cachedUserId: number | null = null
 let clientsIndexCache: { expiresAt: number; index: ClientsTicketIndex } | null = null
@@ -951,15 +1002,23 @@ const ORG_TICKETS_CACHE_TTL = 120000
  * меняет в той заявке, которую человек сейчас читает: раньше вместе со списком
  * выбрасывалась и её страница clients, и открытая заявка перезагружала всё
  * заново каждые несколько секунд - на активной очереди практически постоянно.
+ *
+ * `clearMyActiveTickets` по умолчанию включён - так вели себя все вызовы этой
+ * функции раньше, и большинству (собственные действия человека: перевёл
+ * статус, назначил себя) он и нужен. Выключает его только опрос уведомлений:
+ * он видит изменения по всем заявкам на сервере, включая совершенно чужие, а
+ * кэш "моих активных" - это отдельный, самый тяжёлый поиск (250 заявок,
+ * 5-8 секунд на живом сервере, сам видел в логе), и трогать его есть смысл,
+ * только когда заявка на самом деле связана со мной.
  */
-function clearListCaches(): void {
-  activeTicketsCache = null
+function clearListCaches(clearMyActiveTickets = true): void {
+  if (clearMyActiveTickets) activeTicketsCache = null
   ticketListCache.clear()
   orgTicketsCache.clear()
 }
 
-function clearTicketCaches(ticketId?: number): void {
-  clearListCaches()
+function clearTicketCaches(ticketId?: number, clearMyActiveTickets = true): void {
+  clearListCaches(clearMyActiveTickets)
   ticketHtmlCache.clear()
   ticketHtmlPromises.clear()
   if (ticketId) {
@@ -1337,7 +1396,27 @@ async function loadTicketTags(h: ReturnType<typeof zHeaders>): Promise<void> {
   registerFallbackTicketTags()
 }
 
+let metaLoadingPromise: Promise<void> | null = null
+
+/**
+ * Загружает справочники ровно один раз, даже если позвали параллельно.
+ *
+ * `loadMeta` дёргают из нескольких мест сразу при входе (список фильтров,
+ * прогрев кэша заявок), и `metaLoaded` защищает лишь от повторов ПОСЛЕ того,
+ * как загрузка уже закончилась - пока она идёт, флаг ещё не выставлен. Вживую
+ * это было видно в логе: "Успешно загружено агентов: 0" два раза подряд с
+ * разницей в три секунды - вся цепочка из семи запросов отработала дважды.
+ */
 async function loadMeta(token: string): Promise<void> {
+  if (metaLoaded) return
+  if (metaLoadingPromise) return metaLoadingPromise
+  metaLoadingPromise = loadMetaOnce(token).finally(() => {
+    metaLoadingPromise = null
+  })
+  return metaLoadingPromise
+}
+
+async function loadMetaOnce(token: string): Promise<void> {
   if (metaLoaded) return
   const h = zHeaders(token)
   try {
@@ -1544,7 +1623,30 @@ function extractUserImageHash(user: any): string | null {
   return null
 }
 
+/**
+ * Запоминает названия организаций и групп из `assets`.
+ *
+ * В `assets` каждый такой объект приходит один раз на весь ответ, а не строкой в
+ * каждой заявке, - именно поэтому ответ без `expand` дешевле для сервера. Имена
+ * складываем в справочники, и дальше заявке достаточно своего `organization_id`.
+ */
+function registerNamesFromAssets(assets: any): void {
+  if (assets?.Organization) {
+    for (const [id, value] of Object.entries(assets.Organization)) {
+      const name = String((value as { name?: string })?.name ?? '').trim()
+      if (name) meta.organizations[Number(id)] = name
+    }
+  }
+  if (assets?.Group) {
+    for (const [id, value] of Object.entries(assets.Group)) {
+      const name = String((value as { name?: string })?.name ?? '').trim()
+      if (name) meta.groups[Number(id)] = name
+    }
+  }
+}
+
 function registerUsersFromAssets(assets: any): void {
+  registerNamesFromAssets(assets)
   if (assets && assets.User) {
     for (const [id, u] of Object.entries(assets.User)) {
       const userId = Number(id)
@@ -1742,7 +1844,9 @@ async function fetchClientsAvatarDataUrl(url: string): Promise<string | null> {
 
 function normalizeZammadTicket(raw: any): Ticket {
   const groupId = parseInt(String(raw.group_id ?? '0'), 10)
-  const groupName = String(raw.group ?? '')
+  // Строка `group` приходит только с `expand=true`. Без него берём имя из
+  // справочника: он наполняется из `assets` и из /api/v1/groups при запуске.
+  const groupName = String(raw.group ?? '') || (groupId ? meta.groups[groupId] ?? '' : '')
   if (groupId && groupName) {
     meta.groups[groupId] = groupName
   }
@@ -1772,7 +1876,16 @@ function normalizeZammadTicket(raw: any): Ticket {
     : (ownerId && meta.users[ownerId] ? meta.users[ownerId] : String(raw.owner ?? ''))
 
   const orgId = parseInt(String(raw.organization_id ?? '0'), 10) || null
-  const orgName = String(raw.organization ?? '').replace(/\([^)]+\)/g, '').trim()
+  // Как и с группой: без `expand` названия в заявке нет, оно берётся из
+  // справочника. Заодно запоминаем его, когда строка всё же пришла, - так
+  // справочник наполняется и из тех ответов, где expand остался.
+  const rawOrgName = String(raw.organization ?? '').trim()
+  if (orgId && rawOrgName) {
+    meta.organizations[orgId] = rawOrgName
+  }
+  const orgName = (rawOrgName || (orgId ? meta.organizations[orgId] ?? '' : ''))
+    .replace(/\([^)]+\)/g, '')
+    .trim()
   const ticketTypeId = raw.type === null || raw.type === undefined ? null : String(raw.type).trim()
   const ticketTypeName = getTicketTypeName(ticketTypeId)
   const iikoReasons = getIikoReasons(raw)
@@ -2026,15 +2139,49 @@ async function getActiveTickets(myUserId: number, token: string): Promise<{ tick
   }
 }
 
+/**
+ * Достаёт заявки из ответа поиска, в какой бы форме он ни пришёл.
+ *
+ * Форма зависит от параметров и от сборки Zammad: это может быть массив заявок,
+ * объект с массивом заявок или объект, где заявки перечислены только
+ * идентификаторами, а сами лежат в `assets.Ticket`. Разбираем все три случая,
+ * чтобы отказ от `expand` не зависел от версии сервера.
+ */
+function ticketsFromSearchPayload(data: any): any[] {
+  if (Array.isArray(data)) return data
+  if (!data || typeof data !== 'object') return []
+
+  const list: unknown[] = Array.isArray(data.tickets)
+    ? data.tickets
+    : (Array.isArray(data.ticket_ids) ? data.ticket_ids : [])
+  if (list.length === 0) return []
+
+  if (typeof list[0] === 'object' && list[0] !== null) return list as any[]
+
+  const assetTickets = data.assets?.Ticket
+  if (!assetTickets) return []
+  return list
+    .map(id => assetTickets[String(id)])
+    .filter((ticket): ticket is any => !!ticket)
+}
+
 async function executeGetActiveTickets(myUserId: number, token: string, now: number): Promise<{ tickets: any[]; assets: any }> {
   const h = zHeaders(token)
   const query = `owner_id:${myUserId} AND NOT state:(closed OR merged OR removed)`
-  const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
-  url.searchParams.set('query', query)
-  url.searchParams.set('per_page', '250')
-  url.searchParams.set('expand', 'true')
 
-  const resp = await timed('zammad: мои активные заявки', () => zammadFetch(url.toString(), { headers: h }))
+  const request = async (withExpand: boolean) => {
+    const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
+    url.searchParams.set('query', query)
+    url.searchParams.set('per_page', '250')
+    // `expand` включается только для повторной попытки - см. ниже.
+    if (withExpand) url.searchParams.set('expand', 'true')
+    return timed(
+      `zammad: мои активные заявки${withExpand ? ' (с expand)' : ''}`,
+      () => zammadFetch(url.toString(), { headers: h })
+    )
+  }
+
+  const resp = await request(false)
   if (!resp.ok) {
     if (activeTicketsCache && activeTicketsCache.userId === myUserId) {
       return {
@@ -2046,24 +2193,33 @@ async function executeGetActiveTickets(myUserId: number, token: string, now: num
   }
 
   const data = await resp.json()
-  let rawTickets: any[] = []
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    rawTickets = Array.isArray(data.tickets) ? data.tickets : []
-  } else if (Array.isArray(data)) {
-    rawTickets = data
+  let rawTickets = ticketsFromSearchPayload(data)
+  let assets = data?.assets
+
+  // Страховка на случай незнакомой формы ответа: если сервер сообщил о находках,
+  // а разобрать их не удалось, один раз переспрашиваем по-старому. Лучше разовый
+  // дорогой запрос, чем пустой список у человека на экране.
+  const reportedCount = Number(data?.tickets_count ?? data?.ticket_ids?.length ?? 0)
+  if (rawTickets.length === 0 && reportedCount > 0) {
+    logger.warn(`Поиск вернул ${reportedCount} заявок в незнакомом виде - переспрашиваю с expand`)
+    const retry = await request(true)
+    if (retry.ok) {
+      const retryData = await retry.json()
+      rawTickets = ticketsFromSearchPayload(retryData)
+      assets = retryData?.assets ?? assets
+    }
   }
+
+  registerUsersFromAssets(assets)
 
   activeTicketsCache = {
     userId: myUserId,
     tickets: rawTickets,
-    assets: data?.assets,
+    assets,
     timestamp: now
   }
 
-  return {
-    tickets: rawTickets,
-    assets: data?.assets
-  }
+  return { tickets: rawTickets, assets }
 }
 
 
@@ -2131,10 +2287,17 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
     url.searchParams.set('per_page', String(params.perPage))
     url.searchParams.set('sort_by', sortBy)
     url.searchParams.set('order_by', orderBy)
-    url.searchParams.set('expand', 'true')
+    // Без `expand`. Имена группы, организации и ответственного берутся из
+    // справочников, а отбор по тегам и так делает сервер: условие уходит в сам
+    // поисковый запрос. Локальная перепроверка условий написана осторожно - при
+    // отсутствии тегов у заявки она её пропускает, - поэтому фильтры продолжают
+    // работать. Колонка тегов в таблице была пустой и до этой правки: проверил
+    // живьём - `tickets/search` не отдаёт `tags` вообще, ни с `expand`, ни без
+    // него (тег виден только в самой заявке - его туда кладёт страница clients,
+    // а не Zammad). Так что тут ничего не потеряно.
     url.searchParams.set('with_total_count', 'true')
 
-    const resp = await zammadFetch(url.toString(), { headers: h })
+    const resp = await timed('zammad: список заявок', () => zammadFetch(url.toString(), { headers: h }))
     if (!resp.ok) {
       const text = await resp.text().catch(() => '')
       logger.error('Ошибка загрузки заявок:', { status: resp.status, text: text.slice(0, 300) })
@@ -2143,11 +2306,7 @@ async function executeFetchZammadTickets(params: TicketListParams): Promise<Tick
 
     const data = await resp.json()
     assets = data?.assets
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
-      rawTickets = Array.isArray(data.tickets) ? data.tickets : []
-    } else if (Array.isArray(data)) {
-      rawTickets = data
-    }
+    rawTickets = ticketsFromSearchPayload(data)
   }
 
   registerUsersFromAssets(assets)
@@ -2425,18 +2584,14 @@ async function executeFetchOrgTickets(orgId: number): Promise<Ticket[]> {
   const h = zHeaders(token)
   const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
   url.searchParams.set('query', `organization_id:${orgId}`)
-  url.searchParams.set('per_page', '500')
-  url.searchParams.set('expand', 'true')
-  const resp = await zammadFetch(url.toString(), { headers: h })
+  // Двести вместо пятисот: карточка организации показывает историю обращений, и
+  // пятьсот записей там никто не пролистывает, а сервер поднимал их все.
+  url.searchParams.set('per_page', '200')
+  const resp = await timed(`zammad: заявки организации ${orgId}`, () => zammadFetch(url.toString(), { headers: h }))
   if (!resp.ok) return []
   const data = await resp.json()
   registerUsersFromAssets(data?.assets)
-  let rawTickets: any[] = []
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    rawTickets = Array.isArray(data.tickets) ? data.tickets : []
-  } else if (Array.isArray(data)) {
-    rawTickets = data
-  }
+  const rawTickets = ticketsFromSearchPayload(data)
   const ownerIds = rawTickets.map(t => parseInt(String(t.owner_id ?? '0'), 10)).filter(id => id > 0)
   await ensureUsersLoaded(ownerIds)
   const clientsIndex = await fetchClientsTicketIndex()
@@ -4019,20 +4174,13 @@ async function searchTicketsForMerge(query: string): Promise<Ticket[]> {
   const url = new URL(`${ZAMMAD_BASE}/api/v1/tickets/search`)
   url.searchParams.set('query', zammadQuery)
   url.searchParams.set('per_page', '15')
-  url.searchParams.set('expand', 'true')
 
   const resp = await zammadFetch(url.toString(), { headers: h })
   if (!resp.ok) return []
 
   const data = await resp.json()
-  let rawTickets: any[] = []
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    rawTickets = Array.isArray(data.tickets) ? data.tickets : []
-  } else if (Array.isArray(data)) {
-    rawTickets = data
-  }
-
   registerUsersFromAssets(data?.assets)
+  const rawTickets = ticketsFromSearchPayload(data)
 
   const ownerIds = rawTickets.map(t => parseInt(String(t.owner_id ?? '0'), 10)).filter(id => id > 0)
   await ensureUsersLoaded(ownerIds)
@@ -4202,12 +4350,15 @@ export function setupTicketsIpc(): void {
                 meta.groups[g.id] = g.name
               })
             } else {
-              const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/search?query=*&per_page=100&expand=true`, { headers: h })
+              // Запасной способ узнать названия групп, когда /groups не ответил.
+              // Раньше он держался на `expand` - имена читались из раскрытых
+              // заявок. Теперь их приносит `assets`, где каждая группа приходит
+              // один раз, так что раскрытие тут больше не нужно.
+              const resp = await zammadFetch(`${ZAMMAD_BASE}/api/v1/tickets/search?query=*&per_page=100`, { headers: h })
               if (resp.ok) {
                 const data = await resp.json()
                 registerUsersFromAssets(data?.assets)
-                const tickets = Array.isArray(data) ? data : (data.tickets || [])
-                tickets.forEach(normalizeZammadTicket)
+                ticketsFromSearchPayload(data).forEach(normalizeZammadTicket)
               }
             }
           } catch (err) {
@@ -4269,6 +4420,11 @@ export function setupTicketsIpc(): void {
           counts[stateId] = (counts[stateId] || 0) + 1
         }
       }
+
+      // Как и в списке заявок: без `expand` имя ответственного берётся из
+      // справочника, и недостающих нужно догрузить - иначе в чипах окажется
+      // прочерк там, где человек назначен.
+      await ensureUsersLoaded(rawTickets.map(t => parseInt(String(t.owner_id ?? '0'), 10)).filter(id => id > 0))
 
       const clientsIndex = await fetchClientsTicketIndex()
       const normalized = rawTickets.map(normalizeZammadTicket)
@@ -4492,6 +4648,7 @@ export function setupTicketsIpc(): void {
   })
 
   startNotificationPoller()
+  startZammadRequestMeter()
 
   logger.info('Tickets IPC registered')
 }
@@ -4792,11 +4949,10 @@ async function findRecentlyCreatedTicketId(opts: {
         url.searchParams.set('per_page', '25')
         url.searchParams.set('sort_by', 'created_at')
         url.searchParams.set('order_by', 'desc')
-        url.searchParams.set('expand', 'true')
         const resp = await zammadFetch(url.toString(), { headers: h })
         if (!resp.ok) continue
         const data = await resp.json()
-        const list: any[] = Array.isArray(data) ? data : Array.isArray(data?.tickets) ? data.tickets : []
+        const list = ticketsFromSearchPayload(data)
         const found = pickBest(list.filter(isCandidate))
         if (found) return found
       } catch (err) {
@@ -5131,7 +5287,16 @@ function findSelectedOption(html: string, selectId: string): string {
 
 
 let pollerInterval: any = null
-const checkedTickets = new Map<number, { updatedAt: string; articleCount: number; stateId: number; ownerId: number | null; groupId: number; score: string }>()
+/**
+ * Базовое состояние заявок, по которому опрос понимает, что изменилось.
+ *
+ * `articleCount` может быть `null` - «не знаем». Так бывает, когда ответ поиска
+ * не принёс список комментариев: раньше его всегда приносил `expand`, от
+ * которого мы отказались ради нагрузки на сервер. Считать в этом случае, что
+ * комментариев ноль, нельзя - при первом же изменении заявки разница с
+ * настоящим числом выглядела бы как десяток новых сообщений сразу.
+ */
+const checkedTickets = new Map<number, { updatedAt: string; articleCount: number | null; stateId: number; ownerId: number | null; groupId: number; score: string }>()
 
 // clients writes points as "01.0"/"00.5"; comparing the raw strings is enough to
 // spot a change, and an empty value means the ticket has never been scored.
@@ -5170,7 +5335,7 @@ async function markTicketSelfUpdated(ticketId: number): Promise<void> {
     const t = await resp.json()
     checkedTickets.set(ticketId, {
       updatedAt: t.updated_at,
-      articleCount: Array.isArray(t.article_ids) ? t.article_ids.length : 0,
+      articleCount: Array.isArray(t.article_ids) ? t.article_ids.length : null,
       stateId: parseInt(String(t.state_id), 10),
       ownerId: parseInt(String(t.owner_id), 10) || null,
       groupId: parseInt(String(t.group_id), 10),
@@ -5261,9 +5426,12 @@ function startNotificationPoller() {
       url.searchParams.set('per_page', '100')
       url.searchParams.set('sort_by', 'updated_at')
       url.searchParams.set('order_by', 'desc')
-      url.searchParams.set('expand', 'true')
+      // Без `expand`. Это самый частый запрос приложения - раз в семь секунд, -
+      // и раскрытие связей здесь обходилось дороже всего. Список комментариев,
+      // который он приносил, теперь догружается отдельно и только для тех
+      // заявок, которые действительно изменились: таких единицы.
 
-      const resp = await zammadFetch(url.toString(), { headers: h })
+      const resp = await timed('zammad: опрос изменений', () => zammadFetch(url.toString(), { headers: h }))
       if (!resp.ok) {
         notePollerFailure(`сервер ответил ${resp.status}`)
         return
@@ -5272,7 +5440,7 @@ function startNotificationPoller() {
 
       const data = await resp.json()
       registerUsersFromAssets(data?.assets)
-      const tickets = Array.isArray(data) ? data : (data.tickets || [])
+      const tickets = ticketsFromSearchPayload(data)
 
       for (const t of tickets) {
         const ticketId = t.id
@@ -5288,7 +5456,7 @@ function startNotificationPoller() {
           const isRecent = t.created_at && (Date.now() - new Date(t.created_at).getTime() < 300000)
           checkedTickets.set(ticketId, {
             updatedAt,
-            articleCount: t.article_ids?.length || 0,
+            articleCount: Array.isArray(t.article_ids) ? t.article_ids.length : null,
             stateId,
             ownerId,
             groupId,
@@ -5298,7 +5466,8 @@ function startNotificationPoller() {
           const createdHere = selfCreatedTicketIds.delete(ticketId)
 
           if (!isFirstRun) {
-            clearListCaches()
+            // Новая заявка попадает в "мои активные", только если она моя.
+            clearListCaches(ownerId === myUserId)
             notifyFrontend('tickets:list-updated')
             if (createdHere) {
               // The agent created this ticket a moment ago - the list refresh
@@ -5348,7 +5517,11 @@ function startNotificationPoller() {
             let changeType: 'message' | 'status' | 'owner' | 'score' | 'other' = 'other'
             let changeDetails = ''
             
-            if (newArticleCount > oldArticleCount) {
+            // Когда прежнее число комментариев неизвестно, сравнивать не с чем.
+            // Молчим про новые сообщения и разбираем изменение по остальным
+            // признакам - статусу, ответственному, баллам. Со следующего раза
+            // число уже будет известно, и сообщения снова будут замечены.
+            if (oldArticleCount !== null && newArticleCount > oldArticleCount) {
               const articles = await fetchZammadArticlesLite(ticketId)
               const newArticles = articles.slice(oldArticleCount)
               const foreignArticles = newArticles.filter((art: any) => {
@@ -5393,7 +5566,10 @@ function startNotificationPoller() {
             }
 
             if (changeDetails) {
-              clearTicketCaches(ticketId)
+              // "Мои активные" не трогаем, если заявка не была и не стала моей -
+              // смена статуса у чужой заявки этот список не меняет.
+              const relevantToMe = ownerId === myUserId || cached.ownerId === myUserId
+              clearTicketCaches(ticketId, relevantToMe)
               notifyFrontend('tickets:details-updated', ticketId)
               notifyFrontend('tickets:articles-updated', ticketId)
               notifyFrontend('tickets:list-updated')

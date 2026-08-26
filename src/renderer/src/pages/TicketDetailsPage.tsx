@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { backoffInterval } from '@/lib/pollInterval'
+import { backoffInterval, TICKET_IDLE_POLL_MS } from '@/lib/pollInterval'
 import { buildAiContext } from '@/lib/aiContext'
 import { useOutboxStore } from '@/store/outbox'
 import { TicketBusyBar } from '@/components/tickets/TicketBusyBar'
@@ -129,10 +129,21 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
-  // Общий для обоих запросов заявки: пока сервер отвечает - раз в пять секунд,
-  // когда падает - всё реже, вплоть до раза в минуту.
+  /**
+   * Открытая заявка больше не опрашивается каждые пять секунд.
+   *
+   * Раньше каждая вкладка сама дёргала сервер: у инженера с десятью открытыми
+   * заявками это выходило больше сотни запросов в минуту, а у десяти инженеров -
+   * больше тысячи. При этом почти все ответы были одинаковыми: в заявке за пять
+   * секунд обычно ничего не происходит.
+   *
+   * Теперь об изменениях сообщает главный процесс - он один на всё приложение и
+   * шлёт событие, когда заявка действительно поменялась; по нему запрос
+   * перечитывается сразу. Опрос по времени остаётся лишь редкой подстраховкой на
+   * случай пропущенного события, а при неполадках с сервером разрежается ещё.
+   */
   const pollInterval = (query: { state: { fetchFailureCount: number } }) =>
-    backoffInterval(query.state.fetchFailureCount)
+    Math.max(TICKET_IDLE_POLL_MS, backoffInterval(query.state.fetchFailureCount))
   const macros = useMacrosStore(s => s.macros)
   const ticketScrollRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
