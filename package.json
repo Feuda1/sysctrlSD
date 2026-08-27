@@ -1,6 +1,6 @@
 {
   "name": "sysctrlsd",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Fast modern service desk shell for Zammad",
   "main": "./out/main/index.js",
   "author": {
