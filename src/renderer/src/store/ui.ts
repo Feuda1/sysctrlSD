@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 
-type Theme = 'dark' | 'light' | 'gray' | 'system'
-type ResolvedTheme = 'dark' | 'light' | 'gray'
+export const RESOLVED_THEMES = ['light', 'gray', 'dark', 'oled', 'warm', 'indigo', 'nord'] as const
+export type ResolvedTheme = (typeof RESOLVED_THEMES)[number]
+export type Theme = ResolvedTheme | 'system'
 
 const THEME_STORAGE_KEY = 'ui.theme'
 const CHAT_STYLE_STORAGE_KEY = 'ui.chatStyle'
@@ -93,7 +94,9 @@ function getStoredBubbleSide(): BubbleSide {
 
 function getStoredTheme(): Theme {
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' || stored === 'gray' || stored === 'system' ? stored : 'dark'
+  return stored === 'system' || (RESOLVED_THEMES as readonly string[]).includes(stored ?? '')
+    ? (stored as Theme)
+    : 'dark'
 }
 
 function getStoredSecretTicketControls(): boolean {
@@ -213,9 +216,9 @@ export const useUIStore = create<UIState>((set) => ({
     const resolved = await window.api.theme.set(theme)
     window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     set({ theme, resolvedTheme: resolved })
-    document.documentElement.classList.toggle('dark', resolved === 'dark')
-    document.documentElement.classList.toggle('light', resolved === 'light')
-    document.documentElement.classList.toggle('gray', resolved === 'gray')
+    for (const t of RESOLVED_THEMES) {
+      document.documentElement.classList.toggle(t, t === resolved)
+    }
   },
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),

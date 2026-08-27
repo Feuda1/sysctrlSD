@@ -1,14 +1,40 @@
+import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { resolveScrollDownSide, useUIStore } from '@/store/ui'
+import { resolveScrollDownSide, useUIStore, type ResolvedTheme } from '@/store/ui'
 import { useNotificationsStore } from '@/store/notifications'
 import { SegmentControl, SettingRow, Switch } from './SettingsControls'
 
 /** Appearance and behaviour options of the Интерфейс tab. */
 
-const THEME_LABELS: Record<'light' | 'gray' | 'dark', string> = {
-  light: 'Светлая тема',
-  gray: 'Серая тема',
-  dark: 'Тёмная тема'
+const THEME_OPTIONS: { value: ResolvedTheme; label: string }[] = [
+  { value: 'light', label: 'Светлая' },
+  { value: 'gray', label: 'Серая' },
+  { value: 'dark', label: 'Тёмная' },
+  { value: 'oled', label: 'OLED' },
+  { value: 'warm', label: 'Тёплая' },
+  { value: 'indigo', label: 'Индиго' },
+  { value: 'nord', label: 'Nord' }
+]
+
+/** Настоящий кусочек интерфейса в цветах темы, а не подписанный квадратик -
+ * заворачивает разметку в класс темы, и переменные внутри переопределяются
+ * сами, независимо от того, какая тема активна у всего окна сейчас. */
+function ThemeMiniPreview({ themeClass }: { themeClass: ResolvedTheme }) {
+  return (
+    <div className={cn(themeClass, 'flex h-16 w-full gap-1 overflow-hidden rounded-lg border border-border bg-background p-1.5')}>
+      <div className="flex w-2.5 shrink-0 flex-col items-center gap-1 rounded-sm bg-sidebar py-1.5">
+        <div className="h-1 w-1 rounded-sm bg-primary/80" />
+        <div className="h-1 w-1 rounded-sm bg-foreground/25" />
+        <div className="h-1 w-1 rounded-sm bg-foreground/25" />
+      </div>
+      <div className="flex flex-1 flex-col gap-1 rounded-sm border border-border bg-card p-1.5">
+        <div className="h-1 w-2/5 rounded-full bg-foreground/30" />
+        <div className="h-[3px] w-full rounded-full bg-muted-foreground/30" />
+        <div className="h-[3px] w-4/5 rounded-full bg-muted-foreground/30" />
+        <div className="mt-auto h-2 w-3/5 self-end rounded-sm bg-primary/85" />
+      </div>
+    </div>
+  )
 }
 
 export function ThemeToggle() {
@@ -18,18 +44,35 @@ export function ThemeToggle() {
     <div className="space-y-3">
       <div>
         <p className="text-sm font-medium text-foreground">Тема оформления</p>
-        <p className="text-xs text-muted-foreground">{THEME_LABELS[resolvedTheme]}</p>
+        <p className="text-xs text-muted-foreground">Выберите внешний вид приложения</p>
       </div>
 
-      <SegmentControl
-        value={resolvedTheme}
-        options={[
-          { value: 'light', label: 'Светлая' },
-          { value: 'gray', label: 'Серая' },
-          { value: 'dark', label: 'Тёмная' }
-        ]}
-        onChange={setTheme}
-      />
+      <div className="grid grid-cols-4 gap-2.5">
+        {THEME_OPTIONS.map(opt => {
+          const isActive = resolvedTheme === opt.value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setTheme(opt.value)}
+              className={cn(
+                'group relative flex flex-col gap-1.5 rounded-xl border-2 p-1.5 text-left transition-colors',
+                isActive ? 'border-primary' : 'border-transparent hover:border-border'
+              )}
+            >
+              <ThemeMiniPreview themeClass={opt.value} />
+              {isActive && (
+                <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                  <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                </span>
+              )}
+              <span className={cn('px-0.5 text-xs font-medium', isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')}>
+                {opt.label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

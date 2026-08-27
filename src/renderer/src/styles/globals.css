@@ -134,6 +134,176 @@
     --glass-border: rgba(255, 255, 255, 0.09);
     --glass-blur: blur(20px);
   }
+
+  /* Почти чистый чёрный - меньше нагрузка на глаза и на батарею OLED-экрана,
+     чем у обычной тёмной темы. Оттенок тот же холодный (222), просто
+     светлота прижата к самому краю. */
+  .oled {
+    --background: 222 15% 3%;
+    --foreground: 210 20% 96%;
+
+    --card: 222 15% 6%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 222 15% 5%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 217 91% 62%;
+    --primary-foreground: 222 47% 5%;
+
+    --secondary: 222 15% 9%;
+    --secondary-foreground: 210 20% 90%;
+
+    --muted: 222 15% 8%;
+    --muted-foreground: 215 15% 55%;
+
+    --accent: 222 15% 10%;
+    --accent-foreground: 210 20% 96%;
+
+    --destructive: 0 62% 55%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 222 15% 11%;
+    --input: 222 15% 9%;
+    --ring: 217 91% 62%;
+
+    --sidebar: 222 15% 2%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-border: 222 15% 8%;
+    --sidebar-accent: 222 15% 8%;
+    --sidebar-accent-foreground: 210 20% 96%;
+
+    --glass-bg: rgba(5, 5, 8, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --glass-blur: blur(20px);
+  }
+
+  /* Тёмная, но с тёплым коричнево-янтарным оттенком вместо холодного
+     сине-серого - меньше "синит" с экрана на вечерней смене. */
+  .warm {
+    --background: 30 12% 10%;
+    --foreground: 40 25% 92%;
+
+    --card: 28 14% 14%;
+    --card-foreground: 40 25% 92%;
+
+    --popover: 28 15% 12%;
+    --popover-foreground: 40 25% 92%;
+
+    --primary: 32 85% 58%;
+    --primary-foreground: 30 30% 10%;
+
+    --secondary: 28 12% 18%;
+    --secondary-foreground: 40 20% 88%;
+
+    --muted: 28 12% 17%;
+    --muted-foreground: 30 12% 60%;
+
+    --accent: 28 13% 19%;
+    --accent-foreground: 40 25% 92%;
+
+    --destructive: 6 65% 55%;
+    --destructive-foreground: 30 30% 97%;
+
+    --border: 30 12% 19%;
+    --input: 30 12% 17%;
+    --ring: 32 85% 58%;
+
+    --sidebar: 30 13% 8%;
+    --sidebar-foreground: 38 18% 82%;
+    --sidebar-border: 30 12% 15%;
+    --sidebar-accent: 28 13% 17%;
+    --sidebar-accent-foreground: 40 25% 92%;
+
+    --glass-bg: rgba(38, 30, 22, 0.6);
+    --glass-border: rgba(255, 235, 210, 0.08);
+    --glass-blur: blur(20px);
+  }
+
+  /* Насыщенный тёмно-индиговый вместо нейтрального серо-синего - более
+     "цветной" и фирменный корпус, тот же голубой акцент, что и везде. */
+  .indigo {
+    --background: 230 45% 9%;
+    --foreground: 220 30% 95%;
+
+    --card: 230 40% 13%;
+    --card-foreground: 220 30% 95%;
+
+    --popover: 230 42% 11%;
+    --popover-foreground: 220 30% 95%;
+
+    --primary: 217 91% 62%;
+    --primary-foreground: 230 47% 8%;
+
+    --secondary: 230 35% 18%;
+    --secondary-foreground: 220 25% 90%;
+
+    --muted: 230 35% 17%;
+    --muted-foreground: 220 20% 62%;
+
+    --accent: 230 35% 19%;
+    --accent-foreground: 220 30% 96%;
+
+    --destructive: 0 65% 58%;
+    --destructive-foreground: 220 30% 98%;
+
+    --border: 230 35% 20%;
+    --input: 230 35% 17%;
+    --ring: 217 91% 62%;
+
+    --sidebar: 230 48% 7%;
+    --sidebar-foreground: 220 25% 85%;
+    --sidebar-border: 230 40% 15%;
+    --sidebar-accent: 230 38% 16%;
+    --sidebar-accent-foreground: 220 30% 96%;
+
+    --glass-bg: rgba(25, 30, 60, 0.6);
+    --glass-border: rgba(180, 190, 255, 0.08);
+    --glass-blur: blur(20px);
+  }
+
+  /* Приглушённый сине-серый в духе популярных тем для разработчиков
+     (Nord/Dracula-эстетика) - спокойнее и менее контрастно, чем чистая
+     тёмная, с бирюзовым акцентом вместо синего. */
+  .nord {
+    --background: 220 16% 18%;
+    --foreground: 218 25% 92%;
+
+    --card: 220 16% 22%;
+    --card-foreground: 218 25% 92%;
+
+    --popover: 220 16% 20%;
+    --popover-foreground: 218 25% 92%;
+
+    --primary: 193 65% 60%;
+    --primary-foreground: 220 30% 10%;
+
+    --secondary: 220 14% 26%;
+    --secondary-foreground: 218 20% 88%;
+
+    --muted: 220 14% 25%;
+    --muted-foreground: 218 14% 65%;
+
+    --accent: 220 14% 28%;
+    --accent-foreground: 218 25% 94%;
+
+    --destructive: 354 60% 62%;
+    --destructive-foreground: 220 30% 97%;
+
+    --border: 220 16% 28%;
+    --input: 220 16% 25%;
+    --ring: 193 65% 60%;
+
+    --sidebar: 220 18% 15%;
+    --sidebar-foreground: 218 20% 82%;
+    --sidebar-border: 220 16% 22%;
+    --sidebar-accent: 220 15% 25%;
+    --sidebar-accent-foreground: 218 25% 94%;
+
+    --glass-bg: rgba(50, 60, 75, 0.55);
+    --glass-border: rgba(220, 230, 240, 0.08);
+    --glass-blur: blur(20px);
+  }
 }
 
 @layer base {

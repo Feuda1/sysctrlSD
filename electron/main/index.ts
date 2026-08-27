@@ -482,12 +482,14 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))
-  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'gray' | 'system') => {
-    // «Серая» тема - только про цвета внутри окна, для nativeTheme (заголовок
-    // окна, системные меню) такого понятия нет. Ближе всего тёмный источник -
-    // сама тема средней яркости, а не светлая.
-    nativeTheme.themeSource = theme === 'gray' ? 'dark' : theme
-    if (theme === 'gray') return 'gray'
+  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'system') => {
+    // У nativeTheme (заголовок окна, системные меню) есть только "тёмный" и
+    // "светлый" источник. Любая наша тема средней/низкой яркости - не только
+    // серая - ближе к тёмному источнику, чем к светлому.
+    const isNativeChoice = theme === 'light' || theme === 'dark' || theme === 'system'
+    nativeTheme.themeSource = isNativeChoice ? theme : 'dark'
+    if (!isNativeChoice) return theme
+    if (theme !== 'system') return theme
     return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
   })
 
