@@ -1595,9 +1595,9 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                         className={cn(
                           "w-full rounded-xl border p-4 shadow-sm flex flex-col gap-3",
                           isNote
-                            ? "bg-red-50/50 dark:bg-red-950/25 border-red-200/60 dark:border-red-800/40 text-red-950 dark:text-zinc-100"
+                            ? "bg-red-100/70 dark:bg-red-950/25 border-red-300/70 dark:border-red-800/40 text-red-950 dark:text-zinc-100"
                             : isAgent
-                              ? "bg-blue-50/50 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-800/40 text-blue-950 dark:text-zinc-100"
+                              ? "bg-blue-100/70 dark:bg-blue-950/30 border-blue-300/70 dark:border-blue-800/40 text-blue-950 dark:text-zinc-100"
                               : "bg-zinc-50/50 dark:bg-zinc-800/40 border-zinc-200 dark:border-zinc-700/50 text-zinc-900 dark:text-zinc-100"
                         )}
                       >
@@ -1715,9 +1715,9 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
                         className={cn(
                           "max-w-[88%] rounded-2xl px-5 py-4 border shadow-sm flex flex-col gap-3",
                           isNote
-                            ? "bg-red-50/70 dark:bg-red-950/35 border-red-200/60 dark:border-red-900/40 text-red-950 dark:text-zinc-100 rounded-tr-none"
+                            ? "bg-red-100/80 dark:bg-red-950/35 border-red-300/70 dark:border-red-900/40 text-red-950 dark:text-zinc-100 rounded-tr-none"
                             : isAgent
-                              ? cn("bg-blue-50/70 dark:bg-blue-950/45 border-blue-200/60 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100", isRightAligned ? "rounded-tr-none" : "rounded-tl-none")
+                              ? cn("bg-blue-100/80 dark:bg-blue-950/45 border-blue-300/70 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100", isRightAligned ? "rounded-tr-none" : "rounded-tl-none")
                               : cn("bg-zinc-100/80 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700/60 text-zinc-900 dark:text-zinc-100", isRightAligned ? "rounded-tr-none" : "rounded-tl-none")
                         )}
                       >

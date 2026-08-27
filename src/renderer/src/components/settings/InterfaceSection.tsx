@@ -113,9 +113,9 @@ export function MiniBubble({ align, variant, name, time, text }: {
     ? <div className="h-6 w-6 shrink-0 rounded-full bg-blue-500/20 dark:bg-blue-500/25 border border-blue-300 dark:border-blue-500/35 flex items-center justify-center text-[9px] font-bold text-blue-600 dark:text-blue-300">АГ</div>
     : <div className="h-6 w-6 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 flex items-center justify-center text-[9px] font-bold text-zinc-700 dark:text-zinc-300">ИИ</div>
   const bubble = variant === 'agent'
-    ? "bg-blue-50/70 dark:bg-blue-950/45 border-blue-200/60 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100"
+    ? "bg-blue-100/80 dark:bg-blue-950/45 border-blue-300/70 dark:border-blue-900/50 text-blue-950 dark:text-zinc-100"
     : "bg-zinc-100/80 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700/60 text-zinc-900 dark:text-zinc-100"
-  const headBorder = variant === 'agent' ? "border-blue-200/60 dark:border-blue-900/30" : "border-zinc-200 dark:border-zinc-700/30"
+  const headBorder = variant === 'agent' ? "border-blue-300/70 dark:border-blue-900/30" : "border-zinc-200 dark:border-zinc-700/30"
   return (
     <div className={cn("flex gap-2 items-start", isRight ? "justify-end" : "justify-start")}>
       {!isRight && avatar}
@@ -189,8 +189,8 @@ export function ChatStyleSettings() {
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="rounded-lg border border-blue-200/60 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 text-[11px] text-blue-950 dark:text-zinc-100 flex flex-col gap-1.5 shadow-sm">
-                <div className="flex items-center justify-between border-b border-blue-200/60 dark:border-blue-900/30 pb-1 text-[9px] text-blue-900/60 dark:text-zinc-400">
+              <div className="rounded-lg border border-blue-300/70 dark:border-blue-800/40 bg-blue-100/70 dark:bg-blue-950/20 p-2.5 text-[11px] text-blue-950 dark:text-zinc-100 flex flex-col gap-1.5 shadow-sm">
+                <div className="flex items-center justify-between border-b border-blue-300/70 dark:border-blue-900/30 pb-1 text-[9px] text-blue-900/60 dark:text-zinc-400">
                   <div className="flex items-center gap-1.5 font-bold">
                     <span className="text-blue-950 dark:text-zinc-300">Агент Поддержки</span>
                     <span className="bg-blue-100 dark:bg-blue-900/45 text-blue-800 dark:text-blue-200 text-[8px] px-1.5 py-0.2 rounded-full font-medium">Агент</span>
