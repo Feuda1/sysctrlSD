@@ -21,6 +21,11 @@ win:
       arch:
         - x64
   executableName: sysctrlSD
+  # Без этого electron-builder всё равно тянет winCodeSign (инструменты
+  # подписи под macOS) даже для чисто windows-сборки без сертификата, а
+  # распаковать его тут нечем: архив содержит симлинки, а создавать их этой
+  # учётной записи Windows не даёт (нет Developer Mode/admin).
+  signAndEditExecutable: false
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
