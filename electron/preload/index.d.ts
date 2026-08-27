@@ -40,8 +40,8 @@ declare global {
       }
       theme: {
         get: () => Promise<'dark' | 'light'>
-        set: (theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'system') =>
-          Promise<'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord'>
+        set: (theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'milky' | 'contrast' | 'system') =>
+          Promise<'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'milky' | 'contrast'>
       }
       tickets: {
         list: (params: {

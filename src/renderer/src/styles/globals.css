@@ -304,6 +304,92 @@
     --glass-border: rgba(220, 230, 240, 0.08);
     --glass-blur: blur(20px);
   }
+
+  /* Светлая, но тёплая кремовая - как топлёное молоко, а не холодный
+     сине-белый лист бумаги обычной светлой темы. Акцент - карамельный,
+     а не синий, в тон остальному. */
+  .milky {
+    --background: 40 33% 95%;
+    --foreground: 30 20% 15%;
+
+    --card: 40 38% 98%;
+    --card-foreground: 30 20% 15%;
+
+    --popover: 40 38% 98%;
+    --popover-foreground: 30 20% 15%;
+
+    --primary: 25 65% 50%;
+    --primary-foreground: 40 40% 98%;
+
+    --secondary: 40 25% 91%;
+    --secondary-foreground: 30 20% 25%;
+
+    --muted: 40 25% 92%;
+    --muted-foreground: 30 12% 45%;
+
+    --accent: 40 25% 90%;
+    --accent-foreground: 30 20% 15%;
+
+    --destructive: 6 70% 50%;
+    --destructive-foreground: 40 40% 98%;
+
+    --border: 38 20% 85%;
+    --input: 38 20% 85%;
+    --ring: 25 65% 50%;
+
+    --sidebar: 40 28% 93%;
+    --sidebar-foreground: 30 20% 25%;
+    --sidebar-border: 38 20% 83%;
+    --sidebar-accent: 40 25% 89%;
+    --sidebar-accent-foreground: 30 20% 15%;
+
+    --glass-bg: rgba(250, 245, 235, 0.75);
+    --glass-border: rgba(90, 70, 40, 0.08);
+    --glass-blur: blur(20px);
+  }
+
+  /* Не про настроение, а про читаемость - максимум контраста везде: чистый
+     чёрный фон, чистый белый текст, границы видны сами по себе, а не через
+     тонкий полутон. Для тех, кому остальные темы кажутся "смазанными". */
+  .contrast {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 100%;
+
+    --popover: 0 0% 3%;
+    --popover-foreground: 0 0% 100%;
+
+    --primary: 217 100% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 10%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 8%;
+    --muted-foreground: 0 0% 75%;
+
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 35%;
+    --input: 0 0% 12%;
+    --ring: 217 100% 60%;
+
+    --sidebar: 0 0% 0%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-border: 0 0% 30%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 100%;
+
+    --glass-bg: rgba(0, 0, 0, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.25);
+    --glass-blur: blur(20px);
+  }
 }
 
 @layer base {

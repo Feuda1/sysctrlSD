@@ -481,16 +481,21 @@ app.whenReady().then(() => {
     return callOnce(url, { model })
   })
 
+  type ThemeChoice = 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'milky' | 'contrast' | 'system'
+  // У nativeTheme (заголовок окна, системные меню) есть только "тёмный" и
+  // "светлый" источник. Своим темам вне этих двух приходится выбирать, к
+  // какой они ближе - "молочная" светлая, остальные тёмные или средние.
+  const LIGHT_FAMILY = new Set<ThemeChoice>(['light', 'milky'])
+
   ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))
-  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'system') => {
-    // У nativeTheme (заголовок окна, системные меню) есть только "тёмный" и
-    // "светлый" источник. Любая наша тема средней/низкой яркости - не только
-    // серая - ближе к тёмному источнику, чем к светлому.
-    const isNativeChoice = theme === 'light' || theme === 'dark' || theme === 'system'
-    nativeTheme.themeSource = isNativeChoice ? theme : 'dark'
-    if (!isNativeChoice) return theme
-    if (theme !== 'system') return theme
-    return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+  ipcMain.handle('theme:set', (_event, theme: ThemeChoice) => {
+    if (theme === 'light' || theme === 'dark' || theme === 'system') {
+      nativeTheme.themeSource = theme
+      if (theme !== 'system') return theme
+      return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+    }
+    nativeTheme.themeSource = LIGHT_FAMILY.has(theme) ? 'light' : 'dark'
+    return theme
   })
 
   setupPyrusInterceptor(session.defaultSession)

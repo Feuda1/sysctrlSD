@@ -227,8 +227,8 @@ const api = {
   },
   theme: {
     get: (): Promise<'dark' | 'light'> => invoke('theme:get'),
-    set: (theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'system'):
-      Promise<'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord'> =>
+    set: (theme: 'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'milky' | 'contrast' | 'system'):
+      Promise<'dark' | 'light' | 'gray' | 'oled' | 'warm' | 'indigo' | 'nord' | 'milky' | 'contrast'> =>
       invoke('theme:set', theme)
   },
   tickets: {

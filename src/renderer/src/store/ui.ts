@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export const RESOLVED_THEMES = ['light', 'gray', 'dark', 'oled', 'warm', 'indigo', 'nord'] as const
+export const RESOLVED_THEMES = ['light', 'milky', 'gray', 'dark', 'oled', 'warm', 'indigo', 'nord', 'contrast'] as const
 export type ResolvedTheme = (typeof RESOLVED_THEMES)[number]
 export type Theme = ResolvedTheme | 'system'
 

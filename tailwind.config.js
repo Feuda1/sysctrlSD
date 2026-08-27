@@ -8,7 +8,7 @@ module.exports = {
   // классами через запятую это ломает все ветки кроме последней (без "*"
   // класс перестаёт значить "потомок этого класса"). 'variant' с явным "&"
   // такого не делает - потомок прописан у каждой ветки отдельно.
-  darkMode: ['variant', '&:is(.dark *, .gray *, .oled *, .warm *, .indigo *, .nord *)'],
+  darkMode: ['variant', '&:is(.dark *, .gray *, .oled *, .warm *, .indigo *, .nord *, .contrast *)'],
   content: ['./src/renderer/src/**/*.{ts,tsx}', './src/renderer/index.html'],
   theme: {
     extend: {

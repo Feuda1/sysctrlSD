@@ -8,12 +8,14 @@ import { SegmentControl, SettingRow, Switch } from './SettingsControls'
 
 const THEME_OPTIONS: { value: ResolvedTheme; label: string }[] = [
   { value: 'light', label: 'Светлая' },
+  { value: 'milky', label: 'Молочная' },
   { value: 'gray', label: 'Серая' },
   { value: 'dark', label: 'Тёмная' },
   { value: 'oled', label: 'OLED' },
   { value: 'warm', label: 'Тёплая' },
   { value: 'indigo', label: 'Индиго' },
-  { value: 'nord', label: 'Nord' }
+  { value: 'nord', label: 'Nord' },
+  { value: 'contrast', label: 'Контраст' }
 ]
 
 /** Настоящий кусочек интерфейса в цветах темы, а не подписанный квадратик -
@@ -47,7 +49,7 @@ export function ThemeToggle() {
         <p className="text-xs text-muted-foreground">Выберите внешний вид приложения</p>
       </div>
 
-      <div className="grid grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-3 gap-2.5">
         {THEME_OPTIONS.map(opt => {
           const isActive = resolvedTheme === opt.value
           return (
