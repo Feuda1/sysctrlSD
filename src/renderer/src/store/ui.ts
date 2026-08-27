@@ -4,7 +4,7 @@ export const RESOLVED_THEMES = ['light', 'milky', 'gray', 'dark', 'oled', 'warm'
 export type ResolvedTheme = (typeof RESOLVED_THEMES)[number]
 export type Theme = ResolvedTheme | 'system'
 
-const THEME_STORAGE_KEY = 'ui.theme'
+export const THEME_STORAGE_KEY = 'ui.theme'
 const CHAT_STYLE_STORAGE_KEY = 'ui.chatStyle'
 const BUBBLE_SIDE_STORAGE_KEY = 'ui.bubbleSide'
 const SECRET_TICKET_CONTROLS_KEY = 'ui.secretTicketControls'

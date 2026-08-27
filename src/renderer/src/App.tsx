@@ -13,6 +13,7 @@ import { useNotificationsStore } from './store/notifications'
 import { NotificationToast } from './components/notifications/NotificationToast'
 import { UpdateNotification } from './components/UpdateNotification'
 import { WindowControls } from './components/layout/WindowControls'
+import { NotificationPopupView } from './components/notifications/NotificationPopupView'
 
 function RestoreScreen() {
   return (
@@ -65,7 +66,19 @@ function RestoreScreen() {
   )
 }
 
+/**
+ * Окно-попап уведомления (`?popup=notification`) - это отдельный процесс
+ * рендерера, тот же бандл, но без всего того, что нужно только основному
+ * окну (вход, heartbeat, синхронизация настроек и т.д.). Развилка на самом
+ * верху, а не внутри общего дерева - `MainApp` и её хуки для попапа вообще
+ * не создаются, а не просто не показываются.
+ */
 export default function App() {
+  const isPopup = new URLSearchParams(window.location.search).get('popup') === 'notification'
+  return isPopup ? <NotificationPopupView /> : <MainApp />
+}
+
+function MainApp() {
   const status = useAuthStore((s) => s.status)
   const restore = useAuthStore((s) => s.restore)
   const theme = useUIStore((s) => s.theme)

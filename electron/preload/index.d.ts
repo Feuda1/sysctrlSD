@@ -190,6 +190,10 @@ declare global {
         markAllAsRead: () => Promise<void>
         onNewNotification: (callback: (notif: NotificationItem) => void) => () => void
         onClickAction: (callback: (ticketId: number) => void) => () => void
+        popupPause: () => void
+        popupResume: () => void
+        popupDismiss: () => void
+        popupClick: (ticketId: number) => void
       }
       navigation: {
         onGoToTab: (callback: (path: string) => void) => () => void

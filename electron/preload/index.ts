@@ -457,7 +457,14 @@ const api = {
       const handler = (_: any, ticketId: number) => callback(ticketId)
       ipcRenderer.on('notifications:click-action', handler)
       return () => { ipcRenderer.removeListener('notifications:click-action', handler) }
-    }
+    },
+    // Только для окна-попапа (`?popup=notification`): пауза/возврат таймера
+    // автозакрытия при наведении мыши, клик и явное закрытие крестиком.
+    // Односторонние - ответа не ждём, поэтому `send`, а не `invoke`.
+    popupPause: (): void => ipcRenderer.send('notifications:popup-pause'),
+    popupResume: (): void => ipcRenderer.send('notifications:popup-resume'),
+    popupDismiss: (): void => ipcRenderer.send('notifications:popup-dismiss'),
+    popupClick: (ticketId: number): void => ipcRenderer.send('notifications:popup-click', ticketId)
   },
   navigation: {
     onGoToTab: (callback: (path: string) => void) => {

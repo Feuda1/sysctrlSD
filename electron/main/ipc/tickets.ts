@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import logger from 'electron-log/main'
 import { isWrapperSessionAlive, loginWrapper, readStored, writeStored, setZammadTokenCache, markClientsSessionAlive, markClientsSessionDead } from './auth'
 import { exportTicket, type TicketExportOptions } from '../ticketExport'
+import { showNotificationPopup } from '../notifications/popup'
 import {
   attrValue,
   clientsFormErrorMessage,
@@ -59,8 +60,6 @@ import type { NotificationItem } from '../../preload/index'
 const ZAMMAD_BASE = 'https://zammad.denvic.ru'
 const WRAPPER_BASE = 'https://clients.denvic.ru'
 const CLIENTS_FILTER_IDS = [522, 540, 541, 1067]
-
-const activeSystemNotifications = new Set<any>()
 
 // Ни один запрос к clients не был ограничен по времени. Зависший ответ держал
 // вызов столько, сколько его держит сетевой стек - то есть минутами, - и всё это
@@ -5685,33 +5684,27 @@ async function checkAndNotify(t: any, details: string | null, type: 'message' | 
       notifyFrontend('notifications:new', notification)
 
       if (toastEnabled) {
-        const { BrowserWindow, Notification: ElectronNotification } = require('electron')
+        const { BrowserWindow } = require('electron')
         const getActiveWindow = () => BrowserWindow.getAllWindows().find((w: any) => !w.isDestroyed() && !w.getParentWindow())
         const win = getActiveWindow()
         const isFocused = win ? (win.isFocused() && !win.isMinimized()) : false
         if (!isFocused) {
-          const systemNotif = new ElectronNotification({
-            title: title,
-            body: body,
-            silent: true
-          })
-          activeSystemNotifications.add(systemNotif)
-          systemNotif.on('click', () => {
-            const activeWin = getActiveWindow()
-            if (activeWin) {
-              if (activeWin.isMinimized()) activeWin.restore()
-              activeWin.show()
-              activeWin.focus()
-              activeWin.setAlwaysOnTop(true)
-              activeWin.setAlwaysOnTop(false)
-              activeWin.webContents.send('notifications:click-action', normalized.id)
+          // Своё окно вместо голого системного тоста - оформлено как
+          // остальное приложение, а не как стандартный OS-баннер.
+          showNotificationPopup(
+            { id: notification.id, title, body, ticketId: normalized.id },
+            (ticketId) => {
+              const activeWin = getActiveWindow()
+              if (activeWin) {
+                if (activeWin.isMinimized()) activeWin.restore()
+                activeWin.show()
+                activeWin.focus()
+                activeWin.setAlwaysOnTop(true)
+                activeWin.setAlwaysOnTop(false)
+                activeWin.webContents.send('notifications:click-action', ticketId)
+              }
             }
-            activeSystemNotifications.delete(systemNotif)
-          })
-          systemNotif.on('close', () => {
-            activeSystemNotifications.delete(systemNotif)
-          })
-          systemNotif.show()
+          )
         }
       }
     }
