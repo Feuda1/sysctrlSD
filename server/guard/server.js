@@ -69,16 +69,28 @@ function requireAdmin(req, res, next) {
 const app = express()
 app.use(express.json())
 
-// Каждый клиент бьёт сюда раз в 25 секунд. Ответ - разрешение работать дальше
-// или сигнал, что пора выйти (забанен насовсем или кикнут один раз).
+// Инициалы для маленького кружка-аватарки - своей картинки у guard-сервера
+// нет, и гонять base64-аватар в каждом heartbeat было бы накладно.
+function initialsOf(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '??'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[1][0]).toUpperCase()
+}
+
+// Каждый клиент бьёт сюда раз в 25 секунд (или сразу, если у него реально
+// что-то изменилось - см. controlPlane.ts). Ответ - разрешение работать
+// дальше или сигнал, что пора выйти (забанен насовсем или кикнут один раз).
 app.post('/api/heartbeat', requireAppKey, (req, res) => {
-  const { userId, email, name, requestsLastMinute, viewingTicketIds } = req.body || {}
+  const { userId, email, name, requestsLastMinute, viewing } = req.body || {}
   if (!userId) return res.status(400).json({ error: 'userId required' })
 
   const id = String(userId)
   const existing = state.users[id] || {}
   const kicked = !!existing.kickAt && (!existing.kickAcknowledgedAt || existing.kickAt > existing.kickAcknowledgedAt)
-  const myTicketIds = Array.isArray(viewingTicketIds) ? viewingTicketIds.filter(Number.isFinite) : []
+  const myViewing = Array.isArray(viewing)
+    ? viewing.filter(v => v && Number.isFinite(v.ticketId) && (v.activity === 'viewing' || v.activity === 'typing'))
+    : []
 
   state.users[id] = {
     ...existing,
@@ -86,23 +98,29 @@ app.post('/api/heartbeat', requireAppKey, (req, res) => {
     name: name || existing.name || '',
     lastSeen: Date.now(),
     requestsLastMinute: Number.isFinite(requestsLastMinute) ? requestsLastMinute : 0,
-    viewingTicketIds: myTicketIds,
+    viewing: myViewing,
     ...(kicked ? { kickAcknowledgedAt: Date.now() } : {})
   }
   saveState()
 
   // Кто ещё (реально онлайн, не просто когда-то был) сейчас смотрит те же
-  // заявки, что и я - только по тем id, что я сам только что прислал.
+  // заявки, что и я, и что каждый из них там делает - только по тем id,
+  // что я сам только что прислал.
   const coViewers = {}
-  if (myTicketIds.length > 0) {
+  if (myViewing.length > 0) {
+    const myTicketIds = myViewing.map(v => v.ticketId)
     const now = Date.now()
     for (const [otherId, u] of Object.entries(state.users)) {
       if (otherId === id) continue
       if (!u.lastSeen || (now - u.lastSeen) > ONLINE_WINDOW_MS) continue
-      for (const ticketId of (u.viewingTicketIds || [])) {
-        if (!myTicketIds.includes(ticketId)) continue
-        const key = String(ticketId)
-        ;(coViewers[key] = coViewers[key] || []).push(u.name || 'Коллега')
+      for (const v of (u.viewing || [])) {
+        if (!myTicketIds.includes(v.ticketId)) continue
+        const key = String(v.ticketId)
+        ;(coViewers[key] = coViewers[key] || []).push({
+          name: u.name || 'Коллега',
+          initials: initialsOf(u.name),
+          activity: v.activity
+        })
       }
     }
   }

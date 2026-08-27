@@ -31,6 +31,10 @@ export type BroadcastMessage = {
   sentAt: number
 }
 
+export type ViewerActivity = 'viewing' | 'typing'
+export type ViewingEntry = { ticketId: number; activity: ViewerActivity }
+export type CoViewer = { name: string; initials: string; activity: ViewerActivity }
+
 export type AdminStatus = {
   users: AdminUserRow[]
   totalRequestsLastMinute: number
@@ -370,9 +374,9 @@ const api = {
       ipcRenderer.on('tickets:list-updated', handler)
       return () => { ipcRenderer.removeListener('tickets:list-updated', handler) }
     },
-    setViewingTicketIds: (ids: number[]): Promise<void> => invoke('tickets:setViewingTicketIds', ids),
-    onCoViewers: (callback: (coViewers: Record<string, string[]>) => void) => {
-      const handler = (_: any, coViewers: Record<string, string[]>) => callback(coViewers)
+    setViewing: (entries: ViewingEntry[]): Promise<void> => invoke('tickets:setViewing', entries),
+    onCoViewers: (callback: (coViewers: Record<string, CoViewer[]>) => void) => {
+      const handler = (_: any, coViewers: Record<string, CoViewer[]>) => callback(coViewers)
       ipcRenderer.on('tickets:co-viewers', handler)
       return () => { ipcRenderer.removeListener('tickets:co-viewers', handler) }
     }

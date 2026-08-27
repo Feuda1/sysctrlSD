@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { AiAssistButton } from '@/components/ai/AiAssistButton'
 import { readCommentDraft, writeCommentDraft } from '@/lib/commentDrafts'
+import { usePresenceStore } from '@/store/presence'
 
 /**
  * Поле ввода комментария вместе с его текстом.
@@ -54,6 +55,15 @@ export const CommentInput = forwardRef<CommentInputHandle, CommentInputProps>(fu
     return () => window.clearTimeout(timer)
   }, [ticketId, value])
 
+  // Коллеге, тоже открывшему эту заявку, видно, что здесь уже отвечают -
+  // "печатает" считается только пока поле в фокусе и в нём что-то набрано,
+  // не просто "остался незаконченный черновик с прошлого раза".
+  const [focused, setFocused] = useState(false)
+  useEffect(() => {
+    const activity = focused && value.trim().length > 0 ? 'typing' : 'viewing'
+    usePresenceStore.getState().setActivity(ticketId, activity)
+  }, [ticketId, focused, value])
+
   const insertAtCursor = (text: string) => {
     if (!text) return
     const textarea = textareaRef.current
@@ -86,6 +96,8 @@ export const CommentInput = forwardRef<CommentInputHandle, CommentInputProps>(fu
         value={value}
         onChange={event => setValue(event.target.value)}
         onPaste={handlePaste}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder="Напишите комментарий..."
         spellCheck
         className="min-h-32 w-full resize-y rounded-lg border border-border bg-muted/25 px-3 py-2 pr-9 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60"

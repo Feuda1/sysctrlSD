@@ -80,19 +80,44 @@ export interface BroadcastMessage {
   sentAt: number
 }
 
+export type ViewerActivity = 'viewing' | 'typing'
+export interface ViewingEntry {
+  ticketId: number
+  activity: ViewerActivity
+}
+export interface CoViewer {
+  name: string
+  initials: string
+  activity: ViewerActivity
+}
+
 interface HeartbeatResult {
   banned: boolean
   kicked: boolean
-  coViewers?: Record<string, string[]>
+  coViewers?: Record<string, CoViewer[]>
   broadcast?: BroadcastMessage | null
 }
 
-/** Номера открытых заявок на этом рабочем месте прямо сейчас - выставляется
- * рендерером через IPC при открытии/закрытии вкладки заявки, читается
- * heartbeat'ом. Без отдельного запроса ради этого: едет тем же путём. */
-let viewingTicketIds: number[] = []
-export function setViewingTicketIds(ids: number[]): void {
-  viewingTicketIds = ids
+/** Какие заявки открыты на этом рабочем месте прямо сейчас и что человек там
+ * делает - выставляется рендерером через IPC (открытие/закрытие вкладки,
+ * фокус в поле ответа), читается heartbeat'ом. Без отдельного запроса ради
+ * этого: едет тем же путём. */
+let viewingEntries: ViewingEntry[] = []
+// Не чаще, чем раз в это время - иначе быстрое чередование фокуса в поле
+// ответа могло бы слать heartbeat почти на каждое нажатие.
+const MIN_GAP_BETWEEN_ACTIVITY_HEARTBEATS_MS = 3_000
+let lastActivityHeartbeatAt = 0
+
+export function setViewingEntries(entries: ViewingEntry[]): void {
+  const changed = JSON.stringify(entries) !== JSON.stringify(viewingEntries)
+  viewingEntries = entries
+  if (!changed) return
+  // Реально что-то изменилось (открыли/закрыли заявку, начали или закончили
+  // печатать) - не ждать до 25 секунд, если недавно уже поторапливались.
+  const now = Date.now()
+  if (now - lastActivityHeartbeatAt < MIN_GAP_BETWEEN_ACTIVITY_HEARTBEATS_MS) return
+  lastActivityHeartbeatAt = now
+  runHeartbeat(HEARTBEAT_TIMEOUT_MS)
 }
 
 async function sendHeartbeat(user: AppUser, timeoutMs: number): Promise<HeartbeatResult | null> {
@@ -108,7 +133,7 @@ async function sendHeartbeat(user: AppUser, timeoutMs: number): Promise<Heartbea
       email: user.email,
       name: fullName(user),
       requestsLastMinute,
-      viewingTicketIds
+      viewing: viewingEntries
     }),
     signal: AbortSignal.timeout(timeoutMs)
   })
@@ -188,10 +213,15 @@ export function startControlPlaneHeartbeat(): void {
   heartbeatInterval = setInterval(() => runHeartbeat(HEARTBEAT_TIMEOUT_MS), HEARTBEAT_INTERVAL_MS)
 }
 
-/** Рендерер сообщает, какие заявки у него сейчас открыты - используется
- * следующим же heartbeat'ом, отдельного запроса ради этого нет. */
+/** Рендерер сообщает, какие заявки у него сейчас открыты и печатает ли он в
+ * какой-то из них ответ - используется следующим heartbeat'ом (или, если
+ * что-то реально изменилось, внеочередным). */
 export function setupPresenceIpc(): void {
-  ipcMain.handle('tickets:setViewingTicketIds', (_event, ids: number[]) => {
-    setViewingTicketIds(Array.isArray(ids) ? ids.filter(id => Number.isFinite(id)) : [])
+  ipcMain.handle('tickets:setViewing', (_event, entries: ViewingEntry[]) => {
+    const clean = Array.isArray(entries)
+      ? entries.filter((e): e is ViewingEntry =>
+          !!e && Number.isFinite(e.ticketId) && (e.activity === 'viewing' || e.activity === 'typing'))
+      : []
+    setViewingEntries(clean)
   })
 }

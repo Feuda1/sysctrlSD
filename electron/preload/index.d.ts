@@ -1,4 +1,4 @@
-import { AppUser, AuthResult, AdminStatus, BroadcastMessage, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup, CallRecord, CallSectionKey } from './index'
+import { AppUser, AuthResult, AdminStatus, BroadcastMessage, ViewingEntry, CoViewer, CallRecording, CallsResponse, ClientProfileSettings, ClientProfileSettingsPatch, UpdateInfo, UpdateState, FilterNotificationRule, NotificationSettings, NotificationItem, ChecklistGroup, CallRecord, CallSectionKey } from './index'
 
 declare global {
   interface Window {
@@ -140,8 +140,8 @@ declare global {
         onTicketUpdated: (callback: (ticketId: number) => void) => () => void
         onArticlesUpdated: (callback: (ticketId: number) => void) => () => void
         onListUpdated: (callback: () => void) => () => void
-        setViewingTicketIds: (ids: number[]) => Promise<void>
-        onCoViewers: (callback: (coViewers: Record<string, string[]>) => void) => () => void
+        setViewing: (entries: ViewingEntry[]) => Promise<void>
+        onCoViewers: (callback: (coViewers: Record<string, CoViewer[]>) => void) => () => void
       }
       organizations: {
         list: (params: { query: string; page?: number; perPage?: number }) => Promise<any>

@@ -7,7 +7,7 @@ import { TicketChecklist } from '@/components/tickets/TicketChecklist'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil, Eye } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { resolveScrollDownSide, useUIStore } from '@/store/ui'
@@ -1220,12 +1220,25 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
 
         <div className="flex items-center gap-2">
           {coViewers.length > 0 && (
-            <div
-              className="flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 px-2.5 py-1 text-xs text-muted-foreground"
-              title="Эту заявку прямо сейчас держит открытой ещё кто-то - согласуйте, кто отвечает, чтобы не продублировать ответ"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              Также смотрит: {coViewers.join(', ')}
+            <div className="flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 px-2 py-1 text-xs text-muted-foreground">
+              <div className="flex -space-x-1.5">
+                {coViewers.map((v, i) => (
+                  <div
+                    key={i}
+                    title={`${v.name} - ${v.activity === 'typing' ? 'печатает ответ' : 'смотрит заявку'}`}
+                    className={cn(
+                      'flex h-5 w-5 items-center justify-center rounded-full border-2 border-card text-[9px] font-bold',
+                      v.activity === 'typing' ? 'bg-primary/25 text-primary' : 'bg-muted text-foreground'
+                    )}
+                  >
+                    {v.initials}
+                  </div>
+                ))}
+              </div>
+              <span>
+                {coViewers.some(v => v.activity === 'typing') ? 'Печатает ответ:' : 'Также смотрит:'}{' '}
+                {coViewers.map(v => v.name).join(', ')}
+              </span>
             </div>
           )}
           {/* Рядом с кнопкой, а не поверх переписки: плашка посреди экрана
