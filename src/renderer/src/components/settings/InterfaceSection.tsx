@@ -29,11 +29,12 @@ function ThemeMiniPreview({ themeClass }: { themeClass: ResolvedTheme }) {
         <div className="h-1 w-1 rounded-sm bg-foreground/25" />
         <div className="h-1 w-1 rounded-sm bg-foreground/25" />
       </div>
-      <div className="flex flex-1 flex-col gap-1 rounded-sm border border-border bg-card p-1.5">
-        <div className="h-1 w-2/5 rounded-full bg-foreground/30" />
-        <div className="h-[3px] w-full rounded-full bg-muted-foreground/30" />
-        <div className="h-[3px] w-4/5 rounded-full bg-muted-foreground/30" />
-        <div className="mt-auto h-2 w-3/5 self-end rounded-sm bg-primary/85" />
+      <div className="flex flex-1 flex-col justify-end gap-1 rounded-sm border border-border bg-card p-1.5">
+        {/* Те же классы, что и у настоящих сообщений в заявке - показывает
+            именно то, ради чего это вообще различают: агент и клиент должны
+            быть заметно разных цветов, а не оттенками одного и того же. */}
+        <div className="h-2.5 w-3/5 self-start rounded-sm border border-blue-300/70 bg-blue-100/70 dark:border-blue-900/50 dark:bg-blue-950/45" />
+        <div className="h-2.5 w-3/5 self-end rounded-sm border border-zinc-200 bg-zinc-100/80 dark:border-zinc-700/60 dark:bg-zinc-800/80" />
       </div>
     </div>
   )
