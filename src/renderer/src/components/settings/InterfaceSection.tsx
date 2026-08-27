@@ -5,16 +5,32 @@ import { SegmentControl, SettingRow, Switch } from './SettingsControls'
 
 /** Appearance and behaviour options of the Интерфейс tab. */
 
+const THEME_LABELS: Record<'light' | 'gray' | 'dark', string> = {
+  light: 'Светлая тема',
+  gray: 'Серая тема',
+  dark: 'Тёмная тема'
+}
+
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useUIStore()
-  const isDark = resolvedTheme === 'dark'
 
   return (
-    <SettingRow
-      title="Тема оформления"
-      description={isDark ? 'Тёмная тема' : 'Светлая тема'}
-      control={<Switch checked={isDark} onChange={() => setTheme(isDark ? 'light' : 'dark')} />}
-    />
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium text-foreground">Тема оформления</p>
+        <p className="text-xs text-muted-foreground">{THEME_LABELS[resolvedTheme]}</p>
+      </div>
+
+      <SegmentControl
+        value={resolvedTheme}
+        options={[
+          { value: 'light', label: 'Светлая' },
+          { value: 'gray', label: 'Серая' },
+          { value: 'dark', label: 'Тёмная' }
+        ]}
+        onChange={setTheme}
+      />
+    </div>
   )
 }
 

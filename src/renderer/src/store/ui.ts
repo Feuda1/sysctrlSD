@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
-type Theme = 'dark' | 'light' | 'system'
-type ResolvedTheme = 'dark' | 'light'
+type Theme = 'dark' | 'light' | 'gray' | 'system'
+type ResolvedTheme = 'dark' | 'light' | 'gray'
 
 const THEME_STORAGE_KEY = 'ui.theme'
 const CHAT_STYLE_STORAGE_KEY = 'ui.chatStyle'
@@ -93,7 +93,7 @@ function getStoredBubbleSide(): BubbleSide {
 
 function getStoredTheme(): Theme {
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark'
+  return stored === 'light' || stored === 'dark' || stored === 'gray' || stored === 'system' ? stored : 'dark'
 }
 
 function getStoredSecretTicketControls(): boolean {
@@ -215,6 +215,7 @@ export const useUIStore = create<UIState>((set) => ({
     set({ theme, resolvedTheme: resolved })
     document.documentElement.classList.toggle('dark', resolved === 'dark')
     document.documentElement.classList.toggle('light', resolved === 'light')
+    document.documentElement.classList.toggle('gray', resolved === 'gray')
   },
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),

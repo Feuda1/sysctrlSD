@@ -482,10 +482,13 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('theme:get', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'))
-  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'system') => {
-    nativeTheme.themeSource = theme
-    const isDark = nativeTheme.shouldUseDarkColors
-    return isDark ? 'dark' : 'light'
+  ipcMain.handle('theme:set', (_event, theme: 'dark' | 'light' | 'gray' | 'system') => {
+    // «Серая» тема - только про цвета внутри окна, для nativeTheme (заголовок
+    // окна, системные меню) такого понятия нет. Ближе всего тёмный источник -
+    // сама тема средней яркости, а не светлая.
+    nativeTheme.themeSource = theme === 'gray' ? 'dark' : theme
+    if (theme === 'gray') return 'gray'
+    return nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
   })
 
   setupPyrusInterceptor(session.defaultSession)

@@ -40,7 +40,7 @@ declare global {
       }
       theme: {
         get: () => Promise<'dark' | 'light'>
-        set: (theme: 'dark' | 'light' | 'system') => Promise<'dark' | 'light'>
+        set: (theme: 'dark' | 'light' | 'gray' | 'system') => Promise<'dark' | 'light' | 'gray'>
       }
       tickets: {
         list: (params: {

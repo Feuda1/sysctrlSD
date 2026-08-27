@@ -86,6 +86,50 @@
     --glass-border: rgba(0, 0, 0, 0.08);
     --glass-blur: blur(20px);
   }
+
+  /* Средняя по яркости тема - не чёрная и не белая, ровный серый корпус.
+     Тот же холодный оттенок (222), что у тёмной и светлой тем, только
+     светлота сдвинута к середине, а не к краю - иначе это была бы просто
+     "тёмная тема посветлее". */
+  .gray {
+    --background: 222 10% 33%;
+    --foreground: 210 20% 96%;
+
+    --card: 222 11% 38%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 222 12% 30%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 217 91% 63%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 9% 27%;
+    --secondary-foreground: 210 20% 93%;
+
+    --muted: 222 9% 28%;
+    --muted-foreground: 215 14% 74%;
+
+    --accent: 222 11% 42%;
+    --accent-foreground: 210 20% 97%;
+
+    --destructive: 0 68% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 9% 24%;
+    --input: 222 9% 26%;
+    --ring: 217 91% 63%;
+
+    --sidebar: 222 11% 29%;
+    --sidebar-foreground: 210 15% 90%;
+    --sidebar-border: 222 9% 23%;
+    --sidebar-accent: 222 11% 36%;
+    --sidebar-accent-foreground: 210 20% 97%;
+
+    --glass-bg: rgba(110, 116, 128, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.09);
+    --glass-blur: blur(20px);
+  }
 }
 
 @layer base {
