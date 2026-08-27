@@ -1,6 +1,7 @@
-import { net, BrowserWindow } from 'electron'
+import { net, BrowserWindow, ipcMain } from 'electron'
 import logger from 'electron-log/main'
 import { readStored, forceLogout, type AppUser } from './ipc/auth'
+import { getZammadRequestRate } from './ipc/tickets'
 
 /**
  * Клиент guard-сервера (`server/guard/`): раз в 25 секунд сообщает, что это
@@ -17,6 +18,37 @@ const HEARTBEAT_INTERVAL_MS = 25_000
 const HEARTBEAT_TIMEOUT_MS = 5_000
 const RESTORE_CHECK_TIMEOUT_MS = 3_000
 
+/**
+ * Любой вызов guard-сервера от имени текущего пользователя - используется и
+ * для админ-действий (бан/кик/рассылка, сервер сам проверяет права по
+ * `X-User-Id`), и для личных настроек (там прав не требуется, граница - это
+ * просто "свои", а не "чужие"). Общий для обоих случаев, а не два похожих
+ * куска кода.
+ */
+export async function guardCall<T>(path: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
+  if (!CONTROL_PLANE_BASE || !APP_SHARED_KEY) {
+    throw new Error('Контрольный сервер не настроен в этой сборке')
+  }
+  const user = currentUser()
+  if (!user?.id) throw new Error('Нет активного пользователя')
+
+  const resp = await net.fetch(`${CONTROL_PLANE_BASE}${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-App-Key': APP_SHARED_KEY,
+      'X-User-Id': String(user.id)
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(8000)
+  })
+  if (!resp.ok) {
+    if (resp.status === 403) throw new Error('Нет прав администратора')
+    throw new Error(`Сервер ответил ${resp.status}`)
+  }
+  return (await resp.json()) as T
+}
+
 /** Читает текущего пользователя ровно тем же способом, что и `auth:restore` -
  * без похода в Zammad, из уже сохранённого на диске снимка. */
 export function currentUser(): AppUser | null {
@@ -32,23 +64,52 @@ function fullName(user: AppUser): string {
   return `${user.firstname ?? ''} ${user.lastname ?? ''}`.trim() || user.login
 }
 
-function broadcastForcedLogout(reason: string): void {
+function broadcastToAllWindows(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send('auth:forced-logout', reason)
+    if (!win.isDestroyed()) win.webContents.send(channel, ...args)
   }
+}
+
+function broadcastForcedLogout(reason: string): void {
+  broadcastToAllWindows('auth:forced-logout', reason)
+}
+
+export interface BroadcastMessage {
+  id: string
+  message: string
+  sentAt: number
 }
 
 interface HeartbeatResult {
   banned: boolean
   kicked: boolean
+  coViewers?: Record<string, string[]>
+  broadcast?: BroadcastMessage | null
+}
+
+/** Номера открытых заявок на этом рабочем месте прямо сейчас - выставляется
+ * рендерером через IPC при открытии/закрытии вкладки заявки, читается
+ * heartbeat'ом. Без отдельного запроса ради этого: едет тем же путём. */
+let viewingTicketIds: number[] = []
+export function setViewingTicketIds(ids: number[]): void {
+  viewingTicketIds = ids
 }
 
 async function sendHeartbeat(user: AppUser, timeoutMs: number): Promise<HeartbeatResult | null> {
   if (!CONTROL_PLANE_BASE || !APP_SHARED_KEY) return null
+  // Едет вместе с heartbeat, а не отдельным запросом - админ-экран видит
+  // нагрузку с каждого места без ещё одного похода на сервер ради этого.
+  const requestsLastMinute = getZammadRequestRate().lastMinute
   const resp = await net.fetch(`${CONTROL_PLANE_BASE}/api/heartbeat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-App-Key': APP_SHARED_KEY },
-    body: JSON.stringify({ userId: user.id, email: user.email, name: fullName(user) }),
+    body: JSON.stringify({
+      userId: user.id,
+      email: user.email,
+      name: fullName(user),
+      requestsLastMinute,
+      viewingTicketIds
+    }),
     signal: AbortSignal.timeout(timeoutMs)
   })
   if (!resp.ok) throw new Error(`guard heartbeat -> ${resp.status}`)
@@ -81,10 +142,17 @@ async function applyHeartbeatResult(result: HeartbeatResult | null): Promise<voi
   if (result.banned) {
     await forceLogout()
     broadcastForcedLogout('Доступ отключён администратором.')
-  } else if (result.kicked) {
+    return
+  }
+  if (result.kicked) {
     await forceLogout()
     broadcastForcedLogout('Вас принудительно вывели из приложения. Можно зайти снова.')
+    return
   }
+  // Оба поля шлём всегда, даже пустыми/null - у рендерера тогда нет нужды
+  // хранить своё "было раньше", он просто отражает то, что прислал сервер.
+  broadcastToAllWindows('tickets:co-viewers', result.coViewers ?? {})
+  broadcastToAllWindows('admin:broadcast', result.broadcast ?? null)
 }
 
 async function runHeartbeat(timeoutMs: number): Promise<void> {
@@ -118,4 +186,12 @@ export function startControlPlaneHeartbeat(): void {
 
   runHeartbeat(RESTORE_CHECK_TIMEOUT_MS)
   heartbeatInterval = setInterval(() => runHeartbeat(HEARTBEAT_TIMEOUT_MS), HEARTBEAT_INTERVAL_MS)
+}
+
+/** Рендерер сообщает, какие заявки у него сейчас открыты - используется
+ * следующим же heartbeat'ом, отдельного запроса ради этого нет. */
+export function setupPresenceIpc(): void {
+  ipcMain.handle('tickets:setViewingTicketIds', (_event, ids: number[]) => {
+    setViewingTicketIds(Array.isArray(ids) ? ids.filter(id => Number.isFinite(id)) : [])
+  })
 }

@@ -150,6 +150,10 @@ const ZAMMAD_TIMEOUT_MS = 60_000
  */
 let zammadRequestsThisMinute = 0
 let zammadRequestMeterStarted = false
+/** Запросы за последнюю ЗАКОНЧИВШУЮСЯ минуту - то, что стоит показывать на
+ * экране «Кто онлайн»: число, взятое посреди набегающей минуты, скакало бы
+ * от нуля почти до полного значения каждые 60 секунд без всякой причины. */
+let lastMinuteRequestCount = 0
 
 /**
  * Порог для предупреждения, не для остановки.
@@ -168,6 +172,7 @@ function startZammadRequestMeter(): void {
   setInterval(() => {
     const count = zammadRequestsThisMinute
     zammadRequestsThisMinute = 0
+    lastMinuteRequestCount = count
     if (count === 0) return
     if (count > ZAMMAD_REQUEST_WARN_PER_MINUTE) {
       logger.warn(`[Zammad] ${count} запросов за последнюю минуту - подозрительно много, похоже на зацикленный опрос`)
@@ -175,6 +180,12 @@ function startZammadRequestMeter(): void {
       logger.info(`[Zammad] запросов за последнюю минуту: ${count}`)
     }
   }, 60_000)
+}
+
+/** Для экрана «Кто онлайн» - то же число, что уходит в лог, но доступное по
+ * запросу, а не только через чтение файла на диске. */
+export function getZammadRequestRate(): { lastMinute: number; warnThreshold: number } {
+  return { lastMinute: lastMinuteRequestCount, warnThreshold: ZAMMAD_REQUEST_WARN_PER_MINUTE }
 }
 
 async function zammadFetch(url: string | URL, options: any = {}) {

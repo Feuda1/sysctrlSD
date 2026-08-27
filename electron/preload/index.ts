@@ -22,6 +22,19 @@ export type AdminUserRow = {
   lastSeen: number | null
   online: boolean
   banned: boolean
+  requestsLastMinute: number
+}
+
+export type BroadcastMessage = {
+  id: string
+  message: string
+  sentAt: number
+}
+
+export type AdminStatus = {
+  users: AdminUserRow[]
+  totalRequestsLastMinute: number
+  broadcast: BroadcastMessage | null
 }
 
 export type ClientProfileSettings = {
@@ -356,6 +369,12 @@ const api = {
       const handler = () => callback()
       ipcRenderer.on('tickets:list-updated', handler)
       return () => { ipcRenderer.removeListener('tickets:list-updated', handler) }
+    },
+    setViewingTicketIds: (ids: number[]): Promise<void> => invoke('tickets:setViewingTicketIds', ids),
+    onCoViewers: (callback: (coViewers: Record<string, string[]>) => void) => {
+      const handler = (_: any, coViewers: Record<string, string[]>) => callback(coViewers)
+      ipcRenderer.on('tickets:co-viewers', handler)
+      return () => { ipcRenderer.removeListener('tickets:co-viewers', handler) }
     }
   },
   organizations: {
@@ -444,10 +463,21 @@ const api = {
     }
   },
   admin: {
-    getUsers: (): Promise<AdminUserRow[]> => invoke('admin:getUsers'),
+    getUsers: (): Promise<AdminStatus> => invoke('admin:getUsers'),
     ban: (userId: string | number): Promise<void> => invoke('admin:ban', userId),
     unban: (userId: string | number): Promise<void> => invoke('admin:unban', userId),
-    kick: (userId: string | number): Promise<void> => invoke('admin:kick', userId)
+    kick: (userId: string | number): Promise<void> => invoke('admin:kick', userId),
+    sendBroadcast: (message: string): Promise<void> => invoke('admin:sendBroadcast', message),
+    clearBroadcast: (): Promise<void> => invoke('admin:clearBroadcast'),
+    onBroadcast: (callback: (broadcast: BroadcastMessage | null) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, broadcast: BroadcastMessage | null) => callback(broadcast)
+      ipcRenderer.on('admin:broadcast', handler)
+      return () => { ipcRenderer.removeListener('admin:broadcast', handler) }
+    }
+  },
+  settings: {
+    get: (): Promise<{ settings: Record<string, unknown> | null }> => invoke('settings:get'),
+    push: (settings: Record<string, unknown>): Promise<void> => invoke('settings:push', settings)
   }
 }
 

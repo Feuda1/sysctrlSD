@@ -7,11 +7,12 @@ import { TicketChecklist } from '@/components/tickets/TicketChecklist'
 import { ErrorNotice } from '@/components/ui/error-notice'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Mail, Phone, Calendar, Clock, StickyNote, Loader2, Send, Award, Shield, MessageSquare, Info, ChevronDown, ChevronUp, AlertCircle, RefreshCw, X, FileText, FileImage, FileArchive, Building, User, ExternalLink, Search, Paperclip, Check, Hand, Copy, GitMerge, UserCheck, UserCog, PlusCircle, FileDown, Pencil, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useTicketFilters } from '@/hooks/useTickets'
 import { resolveScrollDownSide, useUIStore } from '@/store/ui'
 import { useAuthStore } from '@/store/auth'
+import { usePresenceStore } from '@/store/presence'
 import { getStateBadgeClass, getTicketTypeBadgeClass, formatTicketDate, formatScore } from '@/types/ticket'
 import type { Ticket, TicketArticle, TicketAttachment, TicketCustomer, OrganizationDetails, TicketHistoryItem } from '@/types/ticket'
 import { cn } from '@/lib/utils'
@@ -129,6 +130,19 @@ export default function TicketDetailsPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const idNum = parseInt(ticketId ?? '0', 10)
+
+  // Сообщает guard-серверу, что эта заявка открыта здесь - и на выходе
+  // снимает регистрацию, чтобы список "кто смотрит" не копил закрытые
+  // вкладки. Не различает активную/фоновую вкладку - открыта где угодно уже
+  // достаточно, чтобы предупредить коллегу.
+  useEffect(() => {
+    if (!idNum) return
+    const { registerViewing, unregisterViewing } = usePresenceStore.getState()
+    registerViewing(idNum)
+    return () => unregisterViewing(idNum)
+  }, [idNum])
+  const coViewers = usePresenceStore(s => s.coViewers[String(idNum)] ?? [])
+
   /**
    * Открытая заявка больше не опрашивается каждые пять секунд.
    *
@@ -1204,9 +1218,20 @@ const allAttachments: ArticleAttachment[] = sortedArticles.flatMap(article =>
           Назад к списку
         </Button>
 
-        {/* Рядом с кнопкой, а не поверх переписки: плашка посреди экрана
-            перекрывала сообщения и цеплялась взглядом сильнее, чем нужно. */}
-        <TicketBusyBar busy={isBusy} label={busyLabel} />
+        <div className="flex items-center gap-2">
+          {coViewers.length > 0 && (
+            <div
+              className="flex items-center gap-1.5 rounded-xl border border-border/40 bg-accent/30 px-2.5 py-1 text-xs text-muted-foreground"
+              title="Эту заявку прямо сейчас держит открытой ещё кто-то - согласуйте, кто отвечает, чтобы не продублировать ответ"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Также смотрит: {coViewers.join(', ')}
+            </div>
+          )}
+          {/* Рядом с кнопкой, а не поверх переписки: плашка посреди экрана
+              перекрывала сообщения и цеплялась взглядом сильнее, чем нужно. */}
+          <TicketBusyBar busy={isBusy} label={busyLabel} />
+        </div>
       </div>
 
       {/* Стороны меняются порядком, а не разметкой: колонки остаются на своих

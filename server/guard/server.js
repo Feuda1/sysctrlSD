@@ -1,6 +1,8 @@
-// sd-guard: минимальный сервер для двух вещей - видеть, кто сейчас держит
-// открытым приложение sysctrlSD, и принудительно банить/кикать конкретного
-// человека. Никакой базы данных: десяток пользователей, один JSON-файл с
+// sd-guard: онлайн-статус, бан/кик, плюс три вещи для удобства - кто ещё
+// смотрит ту же заявку, рассылка от админа и личные настройки, которые
+// следуют за аккаунтом, а не остаются на одном компьютере. Всё это только
+// наш собственный сервис - ничего из этого не трогает сам Zammad и не ходит
+// в его API. Никакой базы данных: десяток пользователей, один JSON-файл с
 // атомарной записью (пишем во временный файл и переименовываем поверх
 // основного - так частичная запись при падении процесса никогда не оставит
 // файл битым).
@@ -70,39 +72,65 @@ app.use(express.json())
 // Каждый клиент бьёт сюда раз в 25 секунд. Ответ - разрешение работать дальше
 // или сигнал, что пора выйти (забанен насовсем или кикнут один раз).
 app.post('/api/heartbeat', requireAppKey, (req, res) => {
-  const { userId, email, name } = req.body || {}
+  const { userId, email, name, requestsLastMinute, viewingTicketIds } = req.body || {}
   if (!userId) return res.status(400).json({ error: 'userId required' })
 
   const id = String(userId)
   const existing = state.users[id] || {}
   const kicked = !!existing.kickAt && (!existing.kickAcknowledgedAt || existing.kickAt > existing.kickAcknowledgedAt)
+  const myTicketIds = Array.isArray(viewingTicketIds) ? viewingTicketIds.filter(Number.isFinite) : []
 
   state.users[id] = {
     ...existing,
     email: email || existing.email || '',
     name: name || existing.name || '',
     lastSeen: Date.now(),
+    requestsLastMinute: Number.isFinite(requestsLastMinute) ? requestsLastMinute : 0,
+    viewingTicketIds: myTicketIds,
     ...(kicked ? { kickAcknowledgedAt: Date.now() } : {})
   }
   saveState()
 
-  res.json({ banned: !!existing.banned, kicked })
+  // Кто ещё (реально онлайн, не просто когда-то был) сейчас смотрит те же
+  // заявки, что и я - только по тем id, что я сам только что прислал.
+  const coViewers = {}
+  if (myTicketIds.length > 0) {
+    const now = Date.now()
+    for (const [otherId, u] of Object.entries(state.users)) {
+      if (otherId === id) continue
+      if (!u.lastSeen || (now - u.lastSeen) > ONLINE_WINDOW_MS) continue
+      for (const ticketId of (u.viewingTicketIds || [])) {
+        if (!myTicketIds.includes(ticketId)) continue
+        const key = String(ticketId)
+        ;(coViewers[key] = coViewers[key] || []).push(u.name || 'Коллега')
+      }
+    }
+  }
+
+  res.json({ banned: !!existing.banned, kicked, coViewers, broadcast: state.broadcast || null })
 })
 
 // Список для админ-экрана: кто есть в базе, когда последний раз стучался,
-// онлайн ли сейчас, забанен ли.
+// онлайн ли сейчас, забанен ли, сколько запросов к Zammad шлёт. Нагрузка
+// в запросах/минуту берётся только у тех, кто реально онлайн - у остальных
+// это число просто устарело и ничего не значит.
 app.get('/api/admin/users', requireAppKey, requireAdmin, (_req, res) => {
   const now = Date.now()
-  const users = Object.entries(state.users).map(([id, u]) => ({
-    id,
-    email: u.email || '',
-    name: u.name || '',
-    lastSeen: u.lastSeen || null,
-    online: !!u.lastSeen && (now - u.lastSeen) < ONLINE_WINDOW_MS,
-    banned: !!u.banned
-  }))
+  const users = Object.entries(state.users).map(([id, u]) => {
+    const online = !!u.lastSeen && (now - u.lastSeen) < ONLINE_WINDOW_MS
+    return {
+      id,
+      email: u.email || '',
+      name: u.name || '',
+      lastSeen: u.lastSeen || null,
+      online,
+      banned: !!u.banned,
+      requestsLastMinute: online ? (u.requestsLastMinute || 0) : 0
+    }
+  })
   users.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0))
-  res.json({ users })
+  const totalRequestsLastMinute = users.reduce((sum, u) => sum + u.requestsLastMinute, 0)
+  res.json({ users, totalRequestsLastMinute, broadcast: state.broadcast || null })
 })
 
 function setBanned(userId, banned) {
@@ -133,6 +161,42 @@ app.post('/api/admin/kick', requireAppKey, requireAdmin, (req, res) => {
   if (!userId) return res.status(400).json({ error: 'userId required' })
   const id = String(userId)
   state.users[id] = { ...(state.users[id] || {}), kickAt: Date.now(), kickAcknowledgedAt: null }
+  saveState()
+  res.json({ ok: true })
+})
+
+// Одно активное сообщение сразу всем - каждый клиент получает его следующим
+// heartbeat (то есть в пределах ~25 секунд) и показывает, если ещё не видел
+// именно это id. Второй broadcast молча заменяет первый - это не очередь.
+app.post('/api/admin/broadcast', requireAppKey, requireAdmin, (req, res) => {
+  const message = String(req.body?.message || '').trim()
+  if (!message) return res.status(400).json({ error: 'message required' })
+  state.broadcast = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, message, sentAt: Date.now() }
+  saveState()
+  res.json({ ok: true, broadcast: state.broadcast })
+})
+
+app.post('/api/admin/broadcast/clear', requireAppKey, requireAdmin, (_req, res) => {
+  state.broadcast = null
+  saveState()
+  res.json({ ok: true })
+})
+
+// Личные настройки интерфейса - привязаны к аккаунту, а не к компьютеру.
+// Каждый читает и пишет только свои: границу задаёт сам X-User-Id, отдельного
+// разрешения на "не админ" не нужно - это не про модерацию.
+app.get('/api/settings', requireAppKey, (req, res) => {
+  const id = String(req.get('X-User-Id') || '')
+  if (!id) return res.status(400).json({ error: 'X-User-Id required' })
+  res.json({ settings: state.users[id]?.settings || null })
+})
+
+app.post('/api/settings', requireAppKey, (req, res) => {
+  const id = String(req.get('X-User-Id') || '')
+  if (!id) return res.status(400).json({ error: 'X-User-Id required' })
+  const settings = req.body?.settings
+  if (!settings || typeof settings !== 'object') return res.status(400).json({ error: 'settings required' })
+  state.users[id] = { ...(state.users[id] || {}), settings }
   saveState()
   res.json({ ok: true })
 })

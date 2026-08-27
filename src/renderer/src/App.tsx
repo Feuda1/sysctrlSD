@@ -3,6 +3,9 @@ import { motion } from 'framer-motion'
 import { useAuthStore } from './store/auth'
 import { useUIStore } from './store/ui'
 import { useTabsStore } from './store/tabs'
+import { usePresenceStore } from './store/presence'
+import { useBroadcastStore } from './store/broadcast'
+import { pullSettingsOnce, startSettingsSync } from './lib/settingsSync'
 import { queryClient } from './lib/queryClient'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -89,12 +92,19 @@ export default function App() {
   useEffect(() => {
     if (status === 'authenticated') {
       initNotifications()
+      pullSettingsOnce().finally(() => startSettingsSync())
     }
   }, [status, initNotifications])
 
   useEffect(() => {
     const unsubForcedLogout = window.api.auth.onForcedLogout((reason) => {
       useAuthStore.getState().forceLogout(reason)
+    })
+    const unsubCoViewers = window.api.tickets.onCoViewers((coViewers) => {
+      usePresenceStore.getState().setCoViewers(coViewers)
+    })
+    const unsubBroadcast = window.api.admin.onBroadcast((broadcast) => {
+      useBroadcastStore.getState().setCurrent(broadcast)
     })
     const unsubTicket = window.api.tickets.onTicketUpdated((ticketId) => {
       queryClient.invalidateQueries({ queryKey: ['ticket-details', ticketId] })
@@ -119,6 +129,8 @@ export default function App() {
 
     return () => {
       unsubForcedLogout()
+      unsubCoViewers()
+      unsubBroadcast()
       unsubTicket()
       unsubArticles()
       unsubList()

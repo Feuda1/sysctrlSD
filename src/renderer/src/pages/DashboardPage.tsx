@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
+import { BroadcastBanner } from '@/components/layout/BroadcastBanner'
 import { OutboxIndicator } from '@/components/layout/OutboxIndicator'
 import { QuickActionModal } from '@/components/tickets/QuickActionModal'
 import { useAuthStore } from '@/store/auth'
@@ -133,6 +134,7 @@ export default function DashboardPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TabBar />
         <OfflineBanner />
+        <BroadcastBanner />
         <TabHost />
       </div>
       <QuickTicketModal />
